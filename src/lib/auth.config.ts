@@ -1,5 +1,4 @@
 import type { NextAuthConfig } from "next-auth";
-import type { UserRole } from "@prisma/client";
 
 const agentRoutes = ["/agent"];
 const adminRoutes = ["/admin"];
@@ -11,13 +10,10 @@ export const authConfig = {
   callbacks: {
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user;
-      const role = (auth?.user as { role?: UserRole } | undefined)?.role;
+      const role = (auth?.user as { role?: string } | undefined)?.role;
       const pathname = nextUrl.pathname;
 
-      // Protect agent routes: require AGENT or ADMIN role
-      const isAgentRoute = agentRoutes.some((route) =>
-        pathname.startsWith(route)
-      );
+      const isAgentRoute = agentRoutes.some((route) => pathname.startsWith(route));
       if (isAgentRoute) {
         if (!isLoggedIn) return false;
         if (role !== "AGENT" && role !== "ADMIN") {
@@ -26,10 +22,7 @@ export const authConfig = {
         return true;
       }
 
-      // Protect admin routes: require ADMIN role
-      const isAdminRoute = adminRoutes.some((route) =>
-        pathname.startsWith(route)
-      );
+      const isAdminRoute = adminRoutes.some((route) => pathname.startsWith(route));
       if (isAdminRoute) {
         if (!isLoggedIn) return false;
         if (role !== "ADMIN") {
@@ -38,9 +31,7 @@ export const authConfig = {
         return true;
       }
 
-      // Auth pages: redirect logged-in users to dashboard
-      const isAuthPage =
-        pathname.startsWith("/login") || pathname.startsWith("/register");
+      const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/register");
       if (isAuthPage) {
         if (isLoggedIn) {
           return Response.redirect(new URL("/dashboard", nextUrl));
@@ -48,7 +39,6 @@ export const authConfig = {
         return true;
       }
 
-      // Dashboard and other protected routes
       const isProtectedRoute =
         pathname.startsWith("/dashboard") ||
         pathname.startsWith("/policies") ||

@@ -15,7 +15,7 @@ export default async function DashboardLayout({
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50">
+    <div className="flex h-screen overflow-hidden bg-[#0f1117]">
       {/* Desktop sidebar */}
       <div className="hidden lg:flex">
         <Sidebar />

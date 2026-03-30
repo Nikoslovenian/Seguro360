@@ -1,4 +1,6 @@
-import type { InsuranceCategory } from "@prisma/client";
+export type InsuranceCategory =
+  | "SALUD" | "VIDA" | "HOGAR" | "VEHICULO" | "ACCIDENTES"
+  | "HOSPITALIZACION" | "INVALIDEZ" | "RESPONSABILIDAD_CIVIL" | "VIAJE" | "OTRO";
 
 export const INSURANCE_CATEGORIES: Record<
   InsuranceCategory,
@@ -7,7 +9,7 @@ export const INSURANCE_CATEGORIES: Record<
   SALUD: {
     label: "Salud",
     icon: "Heart",
-    description: "Seguros de salud, complementarios y ISAPRE",
+    description: "Seguros de salud, complementarios e ISAPRE",
   },
   VIDA: {
     label: "Vida",

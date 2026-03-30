@@ -14,7 +14,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "CoverSight - Analisis de Seguros",
+  title: "Seguro 360 - Analisis de Seguros",
   description:
     "Plataforma integral para consolidar, analizar y comprender tus polizas de seguros. Gestion inteligente de seguros en Chile.",
 };

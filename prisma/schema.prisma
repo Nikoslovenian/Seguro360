@@ -1,12 +1,10 @@
 generator client {
-  provider        = "prisma-client-js"
-  previewFeatures = ["postgresqlExtensions"]
+  provider = "prisma-client-js"
 }
 
 datasource db {
-  provider   = "postgresql"
-  url        = env("DATABASE_URL")
-  extensions = [vector, pgcrypto]
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
 }
 
 // ============================================================
@@ -20,7 +18,7 @@ model User {
   emailVerified  DateTime?
   image          String?
   hashedPassword String?
-  role           UserRole  @default(USER)
+  role           String    @default("USER") // USER, AGENT, ADMIN, REVIEWER
   rut            String?
   rutHash        String?   @unique
   phone          String?
@@ -57,12 +55,12 @@ model Account {
   type              String
   provider          String
   providerAccountId String
-  refresh_token     String? @db.Text
-  access_token      String? @db.Text
+  refresh_token     String?
+  access_token      String?
   expires_at        Int?
   token_type        String?
   scope             String?
-  id_token          String? @db.Text
+  id_token          String?
   session_state     String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -101,7 +99,7 @@ model Organization {
   id        String   @id @default(cuid())
   name      String
   slug      String   @unique
-  plan      PlanType @default(FREE)
+  plan      String   @default("FREE") // FREE, BASIC, PROFESSIONAL, ENTERPRISE
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -121,8 +119,8 @@ model AgentProfile {
   userId          String   @unique
   user            User     @relation(fields: [userId], references: [id])
   licenseNumber   String?
-  specializations String[]
-  bio             String?  @db.Text
+  specializations String?  // JSON array as string
+  bio             String?
   isActive        Boolean  @default(true)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -137,16 +135,16 @@ model AgentProfile {
 // ============================================================
 
 model InsurancePolicy {
-  id               String            @id @default(cuid())
+  id               String    @id @default(cuid())
   userId           String
-  user             User              @relation(fields: [userId], references: [id])
+  user             User      @relation(fields: [userId], references: [id])
   organizationId   String?
-  organization     Organization?     @relation(fields: [organizationId], references: [id])
+  organization     Organization? @relation(fields: [organizationId], references: [id])
 
   policyNumber     String?
   depositCode      String?
   insuranceCompany String?
-  category         InsuranceCategory
+  category         String    // SALUD, VIDA, HOGAR, VEHICULO, etc.
   subcategory      String?
   ramo             String?
 
@@ -159,23 +157,23 @@ model InsurancePolicy {
   issueDate        DateTime?
   renewalDate      DateTime?
 
-  premium           Decimal?         @db.Decimal(12, 2)
-  premiumCurrency   String           @default("CLP")
-  premiumFrequency  PremiumFrequency?
-  totalInsuredAmount Decimal?        @db.Decimal(15, 2)
+  premium           Float?
+  premiumCurrency   String    @default("CLP")
+  premiumFrequency  String?   // MONTHLY, QUARTERLY, SEMIANNUAL, ANNUAL, SINGLE
+  totalInsuredAmount Float?
 
-  status            PolicyStatus     @default(ACTIVE)
-  isVerified        Boolean          @default(false)
+  status            String    @default("ACTIVE") // ACTIVE, EXPIRED, CANCELLED, PENDING_VERIFICATION, DRAFT
+  isVerified        Boolean   @default(false)
 
-  source            DataSource       @default(DOCUMENT_UPLOAD)
+  source            String    @default("DOCUMENT_UPLOAD") // DOCUMENT_UPLOAD, OCR_EXTRACTION, etc.
   overallConfidence Float?
 
-  version           Int              @default(1)
+  version           Int       @default(1)
   previousVersionId String?
-  previousVersion   InsurancePolicy? @relation("PolicyVersions", fields: [previousVersionId], references: [id])
+  previousVersion   InsurancePolicy?  @relation("PolicyVersions", fields: [previousVersionId], references: [id])
   nextVersions      InsurancePolicy[] @relation("PolicyVersions")
 
-  rawExtraction     Json?
+  rawExtraction     String?   // JSON
   extractionModel   String?
   extractedAt       DateTime?
 
@@ -205,25 +203,25 @@ model InsurancePolicy {
 // ============================================================
 
 model Coverage {
-  id              String           @id @default(cuid())
+  id              String          @id @default(cuid())
   policyId        String
-  policy          InsurancePolicy  @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  policy          InsurancePolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
 
   name            String
-  description     String?          @db.Text
-  category        InsuranceCategory?
-  coveredAmount   Decimal?         @db.Decimal(15, 2)
+  description     String?
+  category        String?
+  coveredAmount   Float?
   coveredPercent  Float?
-  currency        String           @default("CLP")
-  limitPerEvent   Decimal?         @db.Decimal(15, 2)
-  limitAnnual     Decimal?         @db.Decimal(15, 2)
-  limitLifetime   Decimal?         @db.Decimal(15, 2)
+  currency        String   @default("CLP")
+  limitPerEvent   Float?
+  limitAnnual     Float?
+  limitLifetime   Float?
 
   confidence       Float?
-  sourceText       String?         @db.Text
+  sourceText       String?
   sourcePage       Int?
   sourceSection    String?
-  sourceAttribution DataSource     @default(LLM_EXTRACTION)
+  sourceAttribution String  @default("LLM_EXTRACTION")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -241,14 +239,14 @@ model Exclusion {
   policyId        String
   policy          InsurancePolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
 
-  description     String          @db.Text
+  description     String
   category        String?
-  isAbsolute      Boolean         @default(true)
+  isAbsolute      Boolean  @default(true)
 
   confidence       Float?
-  sourceText       String?        @db.Text
+  sourceText       String?
   sourcePage       Int?
-  sourceAttribution DataSource    @default(LLM_EXTRACTION)
+  sourceAttribution String  @default("LLM_EXTRACTION")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -267,16 +265,16 @@ model Deductible {
   policy          InsurancePolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
 
   name            String
-  amount          Decimal?        @db.Decimal(12, 2)
+  amount          Float?
   percentage      Float?
-  currency        String          @default("CLP")
+  currency        String   @default("CLP")
   appliesTo       String?
   frequency       String?
 
   confidence       Float?
-  sourceText       String?        @db.Text
+  sourceText       String?
   sourcePage       Int?
-  sourceAttribution DataSource    @default(LLM_EXTRACTION)
+  sourceAttribution String  @default("LLM_EXTRACTION")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -295,18 +293,18 @@ model BenefitLimit {
   policy          InsurancePolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
 
   name            String
-  limitType       LimitType
-  amount          Decimal?        @db.Decimal(12, 2)
+  limitType       String   // COPAY, CAP, MAXIMUM_DAYS, etc.
+  amount          Float?
   percentage      Float?
-  currency        String          @default("CLP")
+  currency        String   @default("CLP")
   maxUnits        Int?
   unitType        String?
   period          String?
 
   confidence       Float?
-  sourceText       String?        @db.Text
+  sourceText       String?
   sourcePage       Int?
-  sourceAttribution DataSource    @default(LLM_EXTRACTION)
+  sourceAttribution String  @default("LLM_EXTRACTION")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -330,9 +328,9 @@ model WaitingPeriod {
   endDate         DateTime?
 
   confidence       Float?
-  sourceText       String?        @db.Text
+  sourceText       String?
   sourcePage       Int?
-  sourceAttribution DataSource    @default(LLM_EXTRACTION)
+  sourceAttribution String  @default("LLM_EXTRACTION")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -354,10 +352,10 @@ model Beneficiary {
   rut             String?
   relationship    String?
   percentage      Float?
-  isContingent    Boolean         @default(false)
+  isContingent    Boolean  @default(false)
 
   confidence       Float?
-  sourceAttribution DataSource    @default(LLM_EXTRACTION)
+  sourceAttribution String  @default("LLM_EXTRACTION")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -371,30 +369,30 @@ model Beneficiary {
 // ============================================================
 
 model PolicyDocument {
-  id              String           @id @default(cuid())
+  id              String   @id @default(cuid())
   userId          String
-  user            User             @relation(fields: [userId], references: [id])
+  user            User     @relation(fields: [userId], references: [id])
   organizationId  String?
-  organization    Organization?    @relation(fields: [organizationId], references: [id])
+  organization    Organization? @relation(fields: [organizationId], references: [id])
 
   fileName        String
   fileType        String
   fileSize        Int
   storagePath     String
-  storageBucket   String           @default("documents")
+  storageBucket   String   @default("documents")
 
-  processingStatus ProcessingStatus @default(PENDING)
-  processingError  String?          @db.Text
+  processingStatus String  @default("PENDING") // PENDING, QUEUED, EXTRACTING_TEXT, etc.
+  processingError  String?
   processingStartedAt DateTime?
   processingCompletedAt DateTime?
 
-  extractedText    String?         @db.Text
+  extractedText    String?
   pageCount        Int?
   isScanned        Boolean?
-  ocrLanguage      String?         @default("spa")
+  ocrLanguage      String?  @default("spa")
   textExtractionMethod String?
 
-  documentType     DocumentType    @default(UNKNOWN)
+  documentType     String   @default("UNKNOWN") // POLIZA, ENDOSO, etc.
   insuranceCompany String?
 
   createdAt DateTime @default(now())
@@ -419,7 +417,7 @@ model DocumentChunk {
   document   PolicyDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
   userId     String
 
-  content    String         @db.Text
+  content    String
   chunkIndex Int
   pageNumber Int?
   section    String?
@@ -437,23 +435,23 @@ model DocumentChunk {
 // ============================================================
 
 model PolicyLibraryEntry {
-  id               String            @id @default(cuid())
-  cmfCode          String?           @unique
+  id               String   @id @default(cuid())
+  cmfCode          String?  @unique
   insuranceCompany String
   productName      String
-  category         InsuranceCategory
+  category         String   // InsuranceCategory as string
   ramo             String?
 
-  summary          String?           @db.Text
-  keyFeatures      Json?
-  standardCoverages Json?
-  standardExclusions Json?
-  typicalPremiumRange Json?
+  summary          String?
+  keyFeatures      String?  // JSON
+  standardCoverages String? // JSON
+  standardExclusions String? // JSON
+  typicalPremiumRange String? // JSON
 
-  source           String            @default("CMF_DEPOSITO")
+  source           String   @default("CMF_DEPOSITO")
   sourceUrl        String?
   lastUpdated      DateTime?
-  isActive         Boolean           @default(true)
+  isActive         Boolean  @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -473,7 +471,7 @@ model ChatConversation {
   user     User    @relation(fields: [userId], references: [id])
   title    String?
   isActive Boolean @default(true)
-  metadata Json?
+  metadata String? // JSON
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -485,15 +483,15 @@ model ChatConversation {
 }
 
 model ChatMessage {
-  id             String           @id @default(cuid())
+  id             String          @id @default(cuid())
   conversationId String
   conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
-  role              MessageRole
-  content           String           @db.Text
-  citations         Json?
-  confidenceLabel   ConfidenceLabel?
-  retrievedChunkIds String[]
+  role              String   // USER, ASSISTANT, SYSTEM
+  content           String
+  citations         String?  // JSON
+  confidenceLabel   String?  // HIGH, MEDIUM, LOW, UNCERTAIN
+  retrievedChunkIds String?  // JSON array
 
   promptTokens     Int?
   completionTokens Int?
@@ -517,12 +515,12 @@ model SimulationScenario {
   userId          String
   user            User      @relation(fields: [userId], references: [id])
 
-  eventType       EventType
-  eventDescription String   @db.Text
-  claimAmount     Decimal   @db.Decimal(15, 2)
+  eventType       String    // HOSPITALIZATION, SURGERY, etc.
+  eventDescription String
+  claimAmount     Float
   currency        String    @default("CLP")
   eventDate       DateTime?
-  additionalParams Json?
+  additionalParams String?  // JSON
 
   createdAt DateTime @default(now())
 
@@ -533,26 +531,26 @@ model SimulationScenario {
 }
 
 model SimulationResult {
-  id              String          @id @default(cuid())
+  id              String             @id @default(cuid())
   scenarioId      String
   scenario        SimulationScenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
   policyId        String
-  policy          InsurancePolicy @relation(fields: [policyId], references: [id])
+  policy          InsurancePolicy    @relation(fields: [policyId], references: [id])
 
   isApplicable    Boolean
-  coveredAmount   Decimal?        @db.Decimal(15, 2)
-  deductibleAmount Decimal?       @db.Decimal(15, 2)
-  copayAmount     Decimal?        @db.Decimal(15, 2)
-  outOfPocket     Decimal?        @db.Decimal(15, 2)
-  currency        String          @default("CLP")
+  coveredAmount   Float?
+  deductibleAmount Float?
+  copayAmount     Float?
+  outOfPocket     Float?
+  currency        String  @default("CLP")
 
-  explanation     String          @db.Text
-  appliedRules    Json?
-  uncertainties   Json?
-  confidenceLevel ConfidenceLabel?
+  explanation     String
+  appliedRules    String? // JSON
+  uncertainties   String? // JSON
+  confidenceLevel String? // HIGH, MEDIUM, LOW, UNCERTAIN
 
-  bestCase        Decimal?        @db.Decimal(15, 2)
-  worstCase       Decimal?        @db.Decimal(15, 2)
+  bestCase        Float?
+  worstCase       Float?
 
   createdAt DateTime @default(now())
 
@@ -567,11 +565,11 @@ model SimulationResult {
 model CMFConnection {
   id        String    @id @default(cuid())
   userId    String
-  mode      CMFMode
-  status    CMFStatus @default(DISCONNECTED)
+  mode      String    // MANUAL_GUIDED, FILE_IMPORT, BROWSER_AUTOMATION, API_CONNECTOR
+  status    String    @default("DISCONNECTED") // DISCONNECTED, CONNECTED, SYNCING, ERROR
   lastSyncAt DateTime?
   lastError String?
-  metadata  Json?
+  metadata  String?   // JSON
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -585,15 +583,15 @@ model CMFConnection {
 // ============================================================
 
 model ConsentRecord {
-  id          String      @id @default(cuid())
+  id          String   @id @default(cuid())
   userId      String
-  user        User        @relation(fields: [userId], references: [id])
-  consentType ConsentType
+  user        User     @relation(fields: [userId], references: [id])
+  consentType String   // TERMS_OF_SERVICE, PRIVACY_POLICY, etc.
   granted     Boolean
   version     String
   ipAddress   String?
   userAgent   String?
-  grantedAt   DateTime    @default(now())
+  grantedAt   DateTime @default(now())
   revokedAt   DateTime?
 
   @@index([userId])
@@ -612,7 +610,7 @@ model AuditLog {
   action     String
   resource   String
   resourceId String?
-  details    Json?
+  details    String? // JSON
   ipAddress  String?
   userAgent  String?
 
@@ -623,146 +621,4 @@ model AuditLog {
   @@index([resource, resourceId])
   @@index([createdAt])
   @@map("audit_logs")
-}
-
-// ============================================================
-// ENUMS
-// ============================================================
-
-enum UserRole {
-  USER
-  AGENT
-  ADMIN
-  REVIEWER
-}
-
-enum PlanType {
-  FREE
-  BASIC
-  PROFESSIONAL
-  ENTERPRISE
-}
-
-enum InsuranceCategory {
-  SALUD
-  VIDA
-  HOGAR
-  VEHICULO
-  ACCIDENTES
-  HOSPITALIZACION
-  INVALIDEZ
-  RESPONSABILIDAD_CIVIL
-  VIAJE
-  OTRO
-}
-
-enum PolicyStatus {
-  ACTIVE
-  EXPIRED
-  CANCELLED
-  PENDING_VERIFICATION
-  DRAFT
-}
-
-enum PremiumFrequency {
-  MONTHLY
-  QUARTERLY
-  SEMIANNUAL
-  ANNUAL
-  SINGLE
-}
-
-enum ProcessingStatus {
-  PENDING
-  QUEUED
-  EXTRACTING_TEXT
-  RUNNING_OCR
-  EXTRACTING_STRUCTURED
-  GENERATING_EMBEDDINGS
-  COMPLETED
-  FAILED
-  NEEDS_REVIEW
-}
-
-enum DocumentType {
-  POLIZA
-  ENDOSO
-  CERTIFICADO
-  CONDICIONADO_GENERAL
-  CONDICIONADO_PARTICULAR
-  LIQUIDACION
-  COTIZACION
-  UNKNOWN
-}
-
-enum DataSource {
-  DOCUMENT_UPLOAD
-  OCR_EXTRACTION
-  LLM_EXTRACTION
-  HUMAN_VERIFIED
-  CMF_IMPORT
-  MANUAL_ENTRY
-  API_IMPORT
-}
-
-enum LimitType {
-  COPAY
-  CAP
-  MAXIMUM_DAYS
-  MAXIMUM_EVENTS
-  ANNUAL_MAXIMUM
-  LIFETIME_MAXIMUM
-}
-
-enum MessageRole {
-  USER
-  ASSISTANT
-  SYSTEM
-}
-
-enum ConfidenceLabel {
-  HIGH
-  MEDIUM
-  LOW
-  UNCERTAIN
-}
-
-enum EventType {
-  HOSPITALIZATION
-  MEDICAL_CONSULTATION
-  SURGERY
-  ACCIDENT
-  VEHICLE_ACCIDENT
-  VEHICLE_THEFT
-  PROPERTY_DAMAGE
-  NATURAL_DISASTER
-  DEATH
-  DISABILITY
-  TRAVEL_EMERGENCY
-  LIABILITY_CLAIM
-  OTHER
-}
-
-enum CMFMode {
-  MANUAL_GUIDED
-  FILE_IMPORT
-  BROWSER_AUTOMATION
-  API_CONNECTOR
-}
-
-enum CMFStatus {
-  DISCONNECTED
-  CONNECTED
-  SYNCING
-  ERROR
-}
-
-enum ConsentType {
-  TERMS_OF_SERVICE
-  PRIVACY_POLICY
-  DATA_PROCESSING
-  DOCUMENT_ANALYSIS
-  AI_ANALYSIS
-  MARKETING
-  THIRD_PARTY_SHARING
 }
