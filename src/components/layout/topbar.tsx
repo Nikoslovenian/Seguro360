@@ -19,13 +19,11 @@ export function Topbar() {
       {/* Left side: mobile menu + page title area */}
       <div className="flex items-center gap-4">
         <Sheet open={open} onOpenChange={setOpen}>
-          <SheetTrigger asChild>
-            <button
-              className="lg:hidden flex h-9 w-9 items-center justify-center rounded-lg text-[#94a3b8] hover:text-white hover:bg-white/[0.06] transition-colors"
-            >
-              <Menu className="h-5 w-5" />
-              <span className="sr-only">Abrir menu</span>
-            </button>
+          <SheetTrigger
+            className="lg:hidden flex h-9 w-9 items-center justify-center rounded-lg text-[#94a3b8] hover:text-white hover:bg-white/[0.06] transition-colors cursor-pointer"
+          >
+            <Menu className="h-5 w-5" />
+            <span className="sr-only">Abrir menu</span>
           </SheetTrigger>
           <SheetContent
             side="left"

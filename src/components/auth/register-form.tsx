@@ -47,7 +47,7 @@ export function RegisterForm() {
       const signInResult = await signIn("credentials", { email, password, redirect: false });
       if (signInResult?.error) { router.push("/login"); return; }
 
-      router.push("/dashboard");
+      router.push("/onboarding");
       router.refresh();
     } catch {
       setError("Ocurrio un error inesperado. Intenta nuevamente.");

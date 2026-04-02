@@ -601,7 +601,87 @@ function fmtCLP(n: number): string {
 //  COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ─── NLP Parser: natural language → form fields ──────────────────────────────
+
+interface NLPResult {
+  eventType: string;
+  description: string;
+  amount: number;
+  confidence: number;
+}
+
+function parseNaturalLanguage(input: string): NLPResult | null {
+  const lower = input.toLowerCase().trim();
+  if (lower.length < 10) return null;
+
+  let eventType = "cirugia";
+  let amount = 0;
+  let confidence = 0.5;
+
+  // Detect event type from keywords
+  if (/cirug[ií]a|operar|operaci[oó]n|artroscop|interven/.test(lower)) { eventType = "cirugia"; confidence = 0.9; }
+  else if (/hospital|internad|ingres/.test(lower)) { eventType = "hospitalizacion"; confidence = 0.9; }
+  else if (/consulta|m[eé]dico|doctor|hora m[eé]dica|especialista/.test(lower)) { eventType = "consulta"; confidence = 0.8; }
+  else if (/urgencia|emergencia|posta/.test(lower)) { eventType = "urgencia"; confidence = 0.8; }
+  else if (/medicament|remedio|farmacia|receta/.test(lower)) { eventType = "medicamentos"; confidence = 0.8; }
+  else if (/choqu[eé]|accidente.*auto|accidente.*vehic|colisi[oó]n|atropell/.test(lower)) { eventType = "accidente_auto"; confidence = 0.9; }
+  else if (/robo.*auto|robo.*vehic|robaron.*auto/.test(lower)) { eventType = "robo_vehiculo"; confidence = 0.9; }
+  else if (/incendio|inundaci[oó]n|terremoto|casa|hogar|departamento|robo.*casa/.test(lower)) { eventType = "dano_propiedad"; confidence = 0.8; }
+  else if (/viaje|extranjero|aeropuerto|exterior/.test(lower)) { eventType = "viaje"; confidence = 0.8; }
+  else if (/c[aá]ncer|tumor|oncol[oó]g|quimio|radioterap/.test(lower)) { eventType = "cirugia"; confidence = 0.85; }
+  else if (/rodilla|cadera|columna|hernia|fractura/.test(lower)) { eventType = "cirugia"; confidence = 0.85; }
+  else if (/infarto|coraz[oó]n|cardiac|cerebr/.test(lower)) { eventType = "urgencia"; confidence = 0.9; }
+
+  // Extract amount from text
+  const amountPatterns = [
+    /(\d{1,3}(?:\.\d{3})*(?:\.\d{3}))\s*(?:pesos|clp|\$)?/i,
+    /\$\s*(\d{1,3}(?:\.\d{3})*)/i,
+    /(\d+(?:\.\d+)?)\s*mill[oó]n/i,
+    /(\d+(?:[\.,]\d+)?)\s*M\b/i,
+  ];
+
+  for (const pattern of amountPatterns) {
+    const match = lower.match(pattern);
+    if (match) {
+      let num = match[1].replace(/\./g, "").replace(",", ".");
+      const parsed = parseFloat(num);
+      if (/mill[oó]n|M\b/.test(match[0])) {
+        amount = parsed * 1000000;
+      } else {
+        amount = parsed;
+      }
+      break;
+    }
+  }
+
+  // Common cost heuristics if no amount mentioned
+  if (amount === 0) {
+    const costHints: Record<string, number> = {
+      cirugia: 4500000, hospitalizacion: 3000000, consulta: 50000,
+      urgencia: 500000, medicamentos: 100000, accidente_auto: 5000000,
+      robo_vehiculo: 8000000, dano_propiedad: 10000000, viaje: 2000000,
+    };
+    amount = costHints[eventType] || 3000000;
+    confidence *= 0.7; // lower confidence when amount is guessed
+  }
+
+  return { eventType, description: input, amount, confidence };
+}
+
+const nlpExamples = [
+  "Me voy a operar de la rodilla y la clinica cobra 4.5 millones",
+  "Me chocaron el auto y el taller dice que son 3 millones de reparacion",
+  "Necesito hospitalizarme 5 dias por una apendicitis",
+  "Quiero saber que pasa si me diagnostican cancer",
+  "Me robaron en la casa y perdimos electrodomesticos por 2 millones",
+];
+
 export default function SimulatePage() {
+  // NLP state
+  const [nlpInput, setNlpInput] = useState("");
+  const [nlpParsed, setNlpParsed] = useState<NLPResult | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
   // Form state
   const [eventType, setEventType] = useState("cirugia");
   const [description, setDescription] = useState("");
@@ -609,6 +689,23 @@ export default function SimulatePage() {
   const [healthSystem, setHealthSystem] = useState<HealthSystem>("ISAPRE");
   const [isPublicNetwork, setIsPublicNetwork] = useState(false);
   const [annualCopayStr, setAnnualCopayStr] = useState("0");
+
+  const handleNLPSubmit = () => {
+    const parsed = parseNaturalLanguage(nlpInput);
+    if (parsed) {
+      setNlpParsed(parsed);
+      setEventType(parsed.eventType);
+      setDescription(parsed.description);
+      setAmountStr(parsed.amount.toLocaleString("es-CL"));
+      setShowAdvanced(true);
+      // Auto-simulate
+      setTimeout(() => {
+        const annualCopay = parseInt(annualCopayStr.replace(/\./g, ""), 10) || 0;
+        const r = simulate(parsed.eventType, parsed.amount, healthSystem, isPublicNetwork, parsed.description, annualCopay);
+        setResult(r);
+      }, 100);
+    }
+  };
 
   // GES detection (live as user types)
   const detectedGES = detectGESPathology(description);
@@ -666,6 +763,64 @@ export default function SimulatePage() {
         </div>
       </div>
 
+      {/* ─── CONVERSATIONAL INPUT ─── */}
+      <div className="rounded-2xl border border-[#2d3548] bg-[#1c2333] p-6">
+        <h2 className="text-base font-semibold text-[#e2e8f0] mb-1">
+          Describe tu situacion en tus palabras
+        </h2>
+        <p className="text-sm text-[#94a3b8] mb-4">
+          Escribe lo que te paso o lo que quieres simular. Nosotros detectamos el tipo de evento y monto.
+        </p>
+        <div className="flex gap-3">
+          <textarea
+            value={nlpInput}
+            onChange={(e) => setNlpInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleNLPSubmit(); } }}
+            placeholder="Ej: Me voy a operar de la rodilla y la clinica cobra 4.5 millones..."
+            rows={2}
+            className="flex-1 rounded-xl border border-[#2d3548] bg-[#0f1117] px-4 py-3 text-sm text-[#e2e8f0] placeholder:text-[#64748b] resize-none focus:border-cyan-500/50 focus:outline-none focus:ring-1 focus:ring-cyan-500/50"
+          />
+          <button
+            onClick={handleNLPSubmit}
+            disabled={nlpInput.length < 10}
+            className="shrink-0 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-6 py-3 text-sm font-semibold text-white transition-all hover:shadow-lg hover:shadow-cyan-500/25 disabled:opacity-30 self-end"
+          >
+            Analizar
+          </button>
+        </div>
+
+        {/* Example chips */}
+        <div className="flex flex-wrap gap-2 mt-3">
+          {nlpExamples.map((ex, i) => (
+            <button
+              key={i}
+              onClick={() => { setNlpInput(ex); }}
+              className="rounded-full border border-[#2d3548] bg-[#0f1117] px-3 py-1 text-xs text-[#94a3b8] hover:border-cyan-500/30 hover:text-cyan-400 transition-colors"
+            >
+              {ex.length > 50 ? ex.slice(0, 50) + "..." : ex}
+            </button>
+          ))}
+        </div>
+
+        {/* Parsed result preview */}
+        {nlpParsed && (
+          <div className="mt-4 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4 flex items-start gap-3">
+            <Sparkles className="h-5 w-5 text-cyan-400 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-cyan-400 mb-1">Detectado automaticamente</p>
+              <div className="flex flex-wrap gap-3 text-xs text-[#94a3b8]">
+                <span>Tipo: <strong className="text-[#e2e8f0]">{eventTypes.find(e => e.value === nlpParsed.eventType)?.label}</strong></span>
+                <span>Monto: <strong className="text-[#e2e8f0]">${nlpParsed.amount.toLocaleString("es-CL")}</strong></span>
+                <span>Confianza: <strong className={nlpParsed.confidence > 0.7 ? "text-emerald-400" : "text-amber-400"}>{Math.round(nlpParsed.confidence * 100)}%</strong></span>
+              </div>
+              <button onClick={() => setShowAdvanced(!showAdvanced)} className="mt-2 text-xs text-cyan-400 hover:text-cyan-300">
+                {showAdvanced ? "Ocultar detalles tecnicos" : "Ajustar detalles tecnicos"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Info banner: how Chilean health insurance works */}
       {isHealthEvent && (
         <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 flex gap-3">
@@ -686,8 +841,10 @@ export default function SimulatePage() {
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         {/* ─── LEFT: FORM (2/5) ─── */}
         <div className="lg:col-span-2 space-y-4">
-          <div className="rounded-2xl border border-[#2d3548] bg-[#1c2333] p-5 space-y-4">
-            <h2 className="text-base font-semibold text-[#e2e8f0]">Datos del evento</h2>
+          <div className={`rounded-2xl border border-[#2d3548] bg-[#1c2333] p-5 space-y-4 transition-all ${nlpParsed && !showAdvanced ? "hidden" : ""}`}>
+            <h2 className="text-base font-semibold text-[#e2e8f0]">
+              {nlpParsed ? "Ajustar parametros" : "Datos del evento"}
+            </h2>
 
             {/* Event type */}
             <div className="space-y-1.5">

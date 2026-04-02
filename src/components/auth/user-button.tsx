@@ -3,7 +3,6 @@
 import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
 import { LogOut, User, Settings } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -48,18 +47,13 @@ export function UserButton() {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          className="relative h-9 w-9 rounded-full hover:bg-white/[0.06]"
-        >
-          <Avatar className="h-9 w-9">
-            <AvatarImage src={user.image ?? undefined} alt={user.name ?? ""} />
-            <AvatarFallback className="bg-gradient-to-br from-cyan-500 to-blue-600 text-white text-sm font-medium">
-              {initials}
-            </AvatarFallback>
-          </Avatar>
-        </Button>
+      <DropdownMenuTrigger className="relative h-9 w-9 rounded-full hover:bg-white/[0.06] cursor-pointer outline-none">
+        <Avatar className="h-9 w-9">
+          <AvatarImage src={user.image ?? undefined} alt={user.name ?? ""} />
+          <AvatarFallback className="bg-gradient-to-br from-cyan-500 to-blue-600 text-white text-sm font-medium">
+            {initials}
+          </AvatarFallback>
+        </Avatar>
       </DropdownMenuTrigger>
       <DropdownMenuContent
         className="w-64 bg-[#1c2333] border border-[#2d3548] shadow-xl shadow-black/40"
