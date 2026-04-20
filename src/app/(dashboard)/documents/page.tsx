@@ -460,54 +460,103 @@ export default function MisSegurosPage() {
     fetchDocuments();
   }, [fetchPolicies, fetchDocuments]);
 
-  /* ----- Document processing simulation ----- */
-  const processDocument = useCallback((docId: string) => {
-    // After 3 seconds -> "Procesando..."
-    setTimeout(() => {
-      setDocuments((prev) =>
-        prev.map((d) =>
-          d.id === docId
-            ? { ...d, status: "procesando" as const, statusLabel: "Procesando..." }
-            : d
-        )
-      );
-      // After 3 more seconds -> "Procesado"
-      setTimeout(() => {
-        setDocuments((prev) =>
-          prev.map((d) =>
-            d.id === docId
-              ? { ...d, status: "procesado" as const, statusLabel: "Procesado" }
-              : d
-          )
-        );
-      }, 3000);
-    }, 3000);
-  }, []);
-
-  /* ----- File handling ----- */
+  /* ----- Real file upload via presign + S3 + process ----- */
   const handleFiles = useCallback(
-    (files: FileList | null) => {
+    async (files: FileList | null) => {
       if (!files) return;
-      Array.from(files).forEach((file) => {
+      setActiveTab("documentos");
+
+      for (const file of Array.from(files)) {
         const ext = file.name.split(".").pop()?.toUpperCase() || "FILE";
-        const docId = `doc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-        const newDoc: DocumentItem = {
-          id: docId,
+        const tempId = `uploading-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+
+        // Show optimistic pending item
+        const pendingDoc: DocumentItem = {
+          id: tempId,
           name: file.name,
           type: ext,
           size: formatFileSize(file.size),
           uploadDate: getTodayFormatted(),
           status: "pendiente",
-          statusLabel: "Pendiente",
+          statusLabel: "Subiendo...",
         };
-        setDocuments((prev) => [newDoc, ...prev]);
-        processDocument(docId);
-      });
-      // Switch to documents tab so user sees the upload
-      setActiveTab("documentos");
+        setDocuments((prev) => [pendingDoc, ...prev]);
+
+        try {
+          // Step 1: Get presigned URL
+          const presignRes = await fetch("/api/documents/presign", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ fileName: file.name, fileType: file.type, fileSize: file.size }),
+          });
+          if (!presignRes.ok) throw new Error("Error al obtener URL de subida");
+          const presignData = await presignRes.json();
+          const { presignedUrl, documentId } = presignData.data;
+
+          // Update with real ID
+          setDocuments((prev) =>
+            prev.map((d) =>
+              d.id === tempId ? { ...d, id: documentId, statusLabel: "Subiendo archivo..." } : d
+            )
+          );
+
+          // Step 2: Upload to S3
+          await fetch(presignedUrl, {
+            method: "PUT",
+            headers: { "Content-Type": file.type },
+            body: file,
+          });
+
+          setDocuments((prev) =>
+            prev.map((d) =>
+              d.id === documentId
+                ? { ...d, status: "procesando" as const, statusLabel: "En cola..." }
+                : d
+            )
+          );
+
+          // Step 3: Trigger processing
+          await fetch("/api/documents/process", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ documentId }),
+          });
+
+          setDocuments((prev) =>
+            prev.map((d) =>
+              d.id === documentId
+                ? { ...d, status: "procesando" as const, statusLabel: "Procesando..." }
+                : d
+            )
+          );
+        } catch (err) {
+          console.error("[Upload] Error:", err);
+          setDocuments((prev) =>
+            prev.map((d) =>
+              d.id === tempId
+                ? { ...d, status: "error" as const, statusLabel: "Error al subir" }
+                : d
+            )
+          );
+        }
+      }
     },
-    [processDocument]
+    []
   );
+
+  /* ----- Poll for processing status updates ----- */
+  useEffect(() => {
+    const hasProcessing = documents.some((d) =>
+      ["pendiente", "procesando"].includes(d.status)
+    );
+    if (!hasProcessing) return;
+
+    const interval = setInterval(() => {
+      fetchDocuments();
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [documents, fetchDocuments]);
 
   /* ----- Add policy ----- */
   const handleAddPolicy = () => {
