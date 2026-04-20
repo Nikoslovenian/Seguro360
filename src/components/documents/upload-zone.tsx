@@ -1,13 +1,13 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { cn } from "@/lib/utils/cn";
+import { cn } from "@/lib/utils";
 import { ACCEPTED_FILE_TYPES } from "@/lib/constants";
 import { Upload, FileText, X, CheckCircle2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress";
 import { ProcessingStatusBadge } from "@/components/documents/processing-status";
-import type { ProcessingStatus } from "@prisma/client";
+import type { ProcessingStatus } from "@/types/prisma-enums";
 
 const MAX_FILE_SIZE_MB = 20;
 const MAX_FILE_SIZE = MAX_FILE_SIZE_MB * 1024 * 1024;
@@ -303,7 +303,7 @@ export function UploadZone({ onUploadComplete, className }: UploadZoneProps) {
                         Subiendo
                       </ProgressLabel>
                       <ProgressValue>
-                        {({ value }) =>
+                        {(_formattedValue, value) =>
                           value != null ? `${Math.round(value)}%` : ""
                         }
                       </ProgressValue>

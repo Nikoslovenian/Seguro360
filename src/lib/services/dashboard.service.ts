@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import type { InsuranceCategory } from "@prisma/client";
+import type { InsuranceCategory } from "@/types/prisma-enums";
 import type { ProtectionLevel } from "@/lib/constants";
 import type { ProtectionScore, Alert, DashboardData } from "@/types/insurance";
 
@@ -40,9 +40,10 @@ export const DashboardService = {
 
     const byCategory = new Map<InsuranceCategory, typeof policies>();
     for (const policy of policies) {
-      const list = byCategory.get(policy.category) ?? [];
+      const cat = policy.category as InsuranceCategory;
+      const list = byCategory.get(cat) ?? [];
       list.push(policy);
-      byCategory.set(policy.category, list);
+      byCategory.set(cat, list);
     }
 
     return ALL_CATEGORIES.map((category) => {
@@ -142,7 +143,7 @@ export const DashboardService = {
           description:
             company + " " + num + " (" + policy.category + ") vence el " + dateStr + ".",
           relatedPolicyId: policy.id,
-          category: policy.category,
+          category: policy.category as InsuranceCategory,
         });
       }
     }
@@ -182,9 +183,10 @@ export const DashboardService = {
     const categoryCount = new Map<InsuranceCategory, number>();
     for (const policy of policies) {
       if (policy.endDate === null || policy.endDate >= now) {
+        const cat = policy.category as InsuranceCategory;
         categoryCount.set(
-          policy.category,
-          (categoryCount.get(policy.category) ?? 0) + 1,
+          cat,
+          (categoryCount.get(cat) ?? 0) + 1,
         );
       }
     }
@@ -223,7 +225,7 @@ export const DashboardService = {
             "La informacion extraida de " + company + " " + num +
             " tiene baja confianza (" + pct + "%). Revise manualmente.",
           relatedPolicyId: policy.id,
-          category: policy.category,
+          category: policy.category as InsuranceCategory,
         });
       }
     }
@@ -240,26 +242,43 @@ export const DashboardService = {
     const now = new Date();
     const thirtyDaysFromNow = new Date(now.getTime() + THIRTY_DAYS_MS);
 
-    const [scores, alerts, totalPolicies, activePolicies, expiringPolicies] =
-      await Promise.all([
-        DashboardService.getProtectionScores(userId),
-        DashboardService.getAlerts(userId),
-        prisma.insurancePolicy.count({ where: { userId } }),
-        prisma.insurancePolicy.count({
-          where: {
-            userId,
-            status: "ACTIVE",
-            OR: [{ endDate: null }, { endDate: { gte: now } }],
-          },
-        }),
-        prisma.insurancePolicy.count({
-          where: {
-            userId,
-            status: "ACTIVE",
-            endDate: { gte: now, lte: thirtyDaysFromNow },
-          },
-        }),
-      ]);
+    const results = await Promise.allSettled([
+      DashboardService.getProtectionScores(userId),
+      DashboardService.getAlerts(userId),
+      prisma.insurancePolicy.count({ where: { userId } }),
+      prisma.insurancePolicy.count({
+        where: {
+          userId,
+          status: "ACTIVE",
+          OR: [{ endDate: null }, { endDate: { gte: now } }],
+        },
+      }),
+      prisma.insurancePolicy.count({
+        where: {
+          userId,
+          status: "ACTIVE",
+          endDate: { gte: now, lte: thirtyDaysFromNow },
+        },
+      }),
+    ]);
+
+    const scores =
+      results[0].status === "fulfilled" ? results[0].value : [];
+    const alerts =
+      results[1].status === "fulfilled" ? results[1].value : [];
+    const totalPolicies =
+      results[2].status === "fulfilled" ? results[2].value : 0;
+    const activePolicies =
+      results[3].status === "fulfilled" ? results[3].value : 0;
+    const expiringPolicies =
+      results[4].status === "fulfilled" ? results[4].value : 0;
+
+    // Log any failures for ops visibility
+    for (const [i, result] of results.entries()) {
+      if (result.status === "rejected") {
+        console.error(`[dashboard] Query ${i} failed:`, result.reason);
+      }
+    }
 
     const coverageGaps = scores
       .filter((s) => s.level === "RED")

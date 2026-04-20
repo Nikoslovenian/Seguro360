@@ -1,4 +1,4 @@
-import type { InsuranceCategory, ConfidenceLabel } from "@prisma/client";
+import type { InsuranceCategory, ConfidenceLabel } from "@/types/prisma-enums";
 import type { ProtectionLevel } from "@/lib/constants";
 
 export interface ProtectionScore {

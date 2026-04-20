@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
-import { cn } from "@/lib/utils/cn";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,7 +19,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { ConfidenceBadge } from "@/components/policies/confidence-badge";
 import { INSURANCE_CATEGORIES } from "@/lib/constants";
 import { Search, FileText, ChevronLeft, ChevronRight } from "lucide-react";
-import type { InsuranceCategory, PolicyStatus } from "@prisma/client";
+import type { InsuranceCategory, PolicyStatus } from "@/types/prisma-enums";
 import type { ApiResponse, PaginatedResponse } from "@/types/api";
 
 interface PolicyListItem {

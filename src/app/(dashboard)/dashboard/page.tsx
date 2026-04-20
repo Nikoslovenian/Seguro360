@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import {
   FileText,
   ShieldCheck,
@@ -23,50 +23,16 @@ import {
   TrendingUp,
   X,
   ChevronRight,
+  Loader2,
+  RefreshCw,
 } from "lucide-react";
+import type { ProtectionScore, Alert } from "@/types/insurance";
+import type { InsuranceCategory } from "@/types/prisma-enums";
+import type { ApiResponse, PaginatedResponse } from "@/types/api";
 
 /* ------------------------------------------------------------------ */
-/*  MOCK DATA                                                          */
+/*  TYPES                                                               */
 /* ------------------------------------------------------------------ */
-
-const statCards = [
-  {
-    label: "Total Polizas",
-    value: "8",
-    trend: "+2 este mes",
-    trendUp: true,
-    icon: FileText,
-    color: "#3b82f6",
-    bgColor: "rgba(59,130,246,0.12)",
-  },
-  {
-    label: "Polizas Activas",
-    value: "6",
-    trend: "75% del total",
-    trendUp: true,
-    icon: ShieldCheck,
-    color: "#10b981",
-    bgColor: "rgba(16,185,129,0.12)",
-  },
-  {
-    label: "Por Vencer (30 dias)",
-    value: "2",
-    trend: "Requiere atencion",
-    trendUp: false,
-    icon: AlertTriangle,
-    color: "#f59e0b",
-    bgColor: "rgba(245,158,11,0.12)",
-  },
-  {
-    label: "Vacios de Cobertura",
-    value: "3",
-    trend: "Categorias sin cubrir",
-    trendUp: false,
-    icon: ShieldOff,
-    color: "#ef4444",
-    bgColor: "rgba(239,68,68,0.12)",
-  },
-];
 
 interface SubCoverage {
   name: string;
@@ -95,180 +61,104 @@ interface ProtectionCategory {
   simpleMessage?: string;
 }
 
-const protectionCategories: ProtectionCategory[] = [
-  {
-    name: "Salud",
-    pct: 85,
-    policies: 2,
-    icon: Heart,
-    color: "#06b6d4",
-    detail: {
-      policyName: "Seguro Complementario",
-      company: "MetLife",
-      status: "Activa",
-      confidence: 92,
-      coverageAmount: "$5.000.000 CLP",
-      subCoverages: [
-        { name: "Consultas medicas", amount: "$500.000/evento", pct: 80, color: "#10b981" },
-        { name: "Hospitalizacion", amount: "$3.000.000/anual", pct: 85, color: "#10b981" },
-        { name: "Cirugia", amount: "$5.000.000/evento", pct: 90, color: "#10b981" },
-        { name: "Medicamentos", amount: "$200.000/anual", pct: 50, color: "#f59e0b" },
-        { name: "Urgencias", amount: "$1.000.000/evento", pct: 75, color: "#10b981" },
-      ],
-    },
-  },
-  {
-    name: "Vida",
-    pct: 70,
-    policies: 1,
-    icon: HeartPulse,
-    color: "#8b5cf6",
-    simpleMessage: "1 poliza activa - Consorcio Nacional - $50.000.000 CLP",
-  },
-  {
-    name: "Hogar",
-    pct: 60,
-    policies: 1,
-    icon: Home,
-    color: "#f59e0b",
-    simpleMessage: "1 poliza activa - Cobertura parcial de incendio y robo",
-  },
-  {
-    name: "Vehiculo",
-    pct: 90,
-    policies: 2,
-    icon: Car,
-    color: "#10b981",
-    detail: {
-      policyName: "Seguro Todo Riesgo",
-      company: "BCI Seguros",
-      status: "Activa",
-      confidence: 95,
-      coverageAmount: "$15.000.000 CLP",
-      subCoverages: [
-        { name: "Dano propio", amount: "$15.000.000", pct: 90, color: "#10b981" },
-        { name: "Responsabilidad civil", amount: "$10.000.000", pct: 85, color: "#10b981" },
-        { name: "Robo total", amount: "$15.000.000", pct: 90, color: "#10b981" },
-      ],
-      note: "Deducible: 3 UF por siniestro",
-    },
-  },
-  {
-    name: "Accidentes",
-    pct: 45,
-    policies: 1,
-    icon: Zap,
-    color: "#ec4899",
-    simpleMessage: "1 poliza activa - Cobertura basica de accidentes personales",
-  },
-  {
-    name: "Hospitalizacion",
-    pct: 80,
-    policies: 1,
-    icon: Hospital,
-    color: "#3b82f6",
-    simpleMessage: "1 poliza activa - Incluida en seguro complementario de salud",
-  },
-  {
-    name: "Invalidez",
-    pct: 0,
-    policies: 0,
-    icon: Accessibility,
-    color: "#ef4444",
-    simpleMessage: "Sin cobertura - Te recomendamos cotizar un seguro de invalidez",
-  },
-  {
-    name: "Resp. Civil",
-    pct: 0,
-    policies: 0,
-    icon: Scale,
-    color: "#ef4444",
-    simpleMessage: "Sin cobertura - Considera proteger tu patrimonio personal",
-  },
-  {
-    name: "Viaje",
-    pct: 30,
-    policies: 1,
-    icon: Plane,
-    color: "#f97316",
-    simpleMessage: "1 poliza activa - Cobertura limitada solo para viajes nacionales",
-  },
-  {
-    name: "Otro",
-    pct: 0,
-    policies: 0,
-    icon: Package,
-    color: "#ef4444",
-    simpleMessage: "Sin cobertura adicional registrada",
-  },
-];
+interface StatCard {
+  label: string;
+  value: string;
+  trend: string;
+  trendUp: boolean;
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
+  color: string;
+  bgColor: string;
+}
 
-const donutSegments = [
-  { label: "Salud", pct: 35, color: "#06b6d4" },
-  { label: "Vida", pct: 15, color: "#8b5cf6" },
-  { label: "Vehiculo", pct: 25, color: "#10b981" },
-  { label: "Hogar", pct: 15, color: "#f59e0b" },
-  { label: "Otros", pct: 10, color: "#ec4899" },
-];
+interface DonutSegment {
+  label: string;
+  pct: number;
+  color: string;
+}
 
-const coverageBars = [
-  { label: "Salud", pct: 85, color: "#06b6d4", gradEnd: "#22d3ee" },
-  { label: "Vida", pct: 70, color: "#8b5cf6", gradEnd: "#a78bfa" },
-  { label: "Hogar", pct: 60, color: "#f59e0b", gradEnd: "#fbbf24" },
-  { label: "Vehiculo", pct: 90, color: "#10b981", gradEnd: "#34d399" },
-  { label: "Accidentes", pct: 45, color: "#ec4899", gradEnd: "#f472b6" },
-  {
-    label: "Hospitalizacion",
-    pct: 80,
-    color: "#3b82f6",
-    gradEnd: "#60a5fa",
-  },
-];
+interface CoverageBar {
+  label: string;
+  pct: number;
+  color: string;
+  gradEnd: string;
+}
 
-const activityItems = [
+interface ActivityItem {
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
+  text: string;
+  time: string;
+  color: string;
+}
+
+/* ------------------------------------------------------------------ */
+/*  CATEGORY MAPPING                                                    */
+/* ------------------------------------------------------------------ */
+
+const CATEGORY_CONFIG: Record<
+  InsuranceCategory,
   {
-    icon: FileCheck,
-    text: "Poliza de salud actualizada",
-    time: "Hace 2 horas",
-    color: "#06b6d4",
-  },
-  {
-    icon: MessageSquare,
-    text: "Consulta IA sobre cobertura vehicular",
-    time: "Hace 5 horas",
-    color: "#8b5cf6",
-  },
-  {
-    icon: FileText,
-    text: "Documento procesado exitosamente",
-    time: "Hace 1 dia",
-    color: "#10b981",
-  },
-  {
-    icon: AlertTriangle,
-    text: "Poliza de hogar por vencer",
-    time: "Hace 2 dias",
-    color: "#f59e0b",
-  },
-  {
-    icon: ShieldCheck,
-    text: "Nueva poliza de vehiculo agregada",
-    time: "Hace 3 dias",
-    color: "#3b82f6",
-  },
-  {
-    icon: Clock,
-    text: "Renovacion automatica programada",
-    time: "Hace 5 dias",
-    color: "#ec4899",
-  },
-];
+    name: string;
+    icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
+    color: string;
+    gradEnd: string;
+  }
+> = {
+  SALUD: { name: "Salud", icon: Heart, color: "#06b6d4", gradEnd: "#22d3ee" },
+  VIDA: { name: "Vida", icon: HeartPulse, color: "#8b5cf6", gradEnd: "#a78bfa" },
+  HOGAR: { name: "Hogar", icon: Home, color: "#f59e0b", gradEnd: "#fbbf24" },
+  VEHICULO: { name: "Vehiculo", icon: Car, color: "#10b981", gradEnd: "#34d399" },
+  ACCIDENTES: { name: "Accidentes", icon: Zap, color: "#ec4899", gradEnd: "#f472b6" },
+  HOSPITALIZACION: { name: "Hospitalizacion", icon: Hospital, color: "#3b82f6", gradEnd: "#60a5fa" },
+  INVALIDEZ: { name: "Invalidez", icon: Accessibility, color: "#ef4444", gradEnd: "#f87171" },
+  RESPONSABILIDAD_CIVIL: { name: "Resp. Civil", icon: Scale, color: "#ef4444", gradEnd: "#f87171" },
+  VIAJE: { name: "Viaje", icon: Plane, color: "#f97316", gradEnd: "#fb923c" },
+  OTRO: { name: "Otro", icon: Package, color: "#ef4444", gradEnd: "#f87171" },
+};
+
+function levelToPercent(level: string, confidence: number): number {
+  if (level === "GREEN") return Math.max(70, Math.round(confidence * 100));
+  if (level === "YELLOW") return Math.max(40, Math.min(69, Math.round(confidence * 100) || 60));
+  return 0;
+}
+
+function formatCLP(amount: number): string {
+  if (amount === 0) return "$0";
+  return "$" + amount.toLocaleString("es-CL") + " CLP";
+}
+
+/* ------------------------------------------------------------------ */
+/*  ALERT -> ACTIVITY MAPPING                                           */
+/* ------------------------------------------------------------------ */
+
+function alertToActivity(alert: Alert): ActivityItem {
+  const typeConfig: Record<string, { icon: typeof FileCheck; color: string }> = {
+    expiring: { icon: AlertTriangle, color: "#f59e0b" },
+    gap: { icon: ShieldOff, color: "#ef4444" },
+    overlap: { icon: ShieldCheck, color: "#3b82f6" },
+    low_confidence: { icon: MessageSquare, color: "#8b5cf6" },
+    exclusion: { icon: FileText, color: "#06b6d4" },
+  };
+  const config = typeConfig[alert.type] || { icon: FileCheck, color: "#94a3b8" };
+  return {
+    icon: config.icon,
+    text: alert.title,
+    time: alert.description.length > 60 ? alert.description.slice(0, 57) + "..." : alert.description,
+    color: config.color,
+  };
+}
 
 /* ------------------------------------------------------------------ */
 /*  SVG DONUT CHART (pure SVG, no libraries)                           */
 /* ------------------------------------------------------------------ */
 
-function DonutChart() {
+function DonutChart({
+  segments,
+  totalPolicies,
+}: {
+  segments: DonutSegment[];
+  totalPolicies: number;
+}) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     const t = setTimeout(() => setMounted(true), 100);
@@ -279,7 +169,7 @@ function DonutChart() {
   const stroke = 28;
   const circumference = 2 * Math.PI * radius;
   const gap = 4;
-  const totalGap = gap * donutSegments.length;
+  const totalGap = gap * segments.length;
   const availableDeg = 360 - totalGap;
 
   let cumulativeOffset = 0;
@@ -288,7 +178,7 @@ function DonutChart() {
     <div className="flex flex-col sm:flex-row items-center gap-6">
       <div className="relative flex-shrink-0">
         <svg width="200" height="200" viewBox="0 0 200 200">
-          {donutSegments.map((seg, i) => {
+          {segments.map((seg, i) => {
             const segDeg = (seg.pct / 100) * availableDeg;
             const segLen = (segDeg / 360) * circumference;
             const offset = (cumulativeOffset / 360) * circumference;
@@ -317,13 +207,13 @@ function DonutChart() {
           })}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-3xl font-bold text-[#e2e8f0]">8</span>
+          <span className="text-3xl font-bold text-[#e2e8f0]">{totalPolicies}</span>
           <span className="text-xs text-[#64748b] font-medium">Polizas</span>
         </div>
       </div>
 
       <div className="flex flex-col gap-3">
-        {donutSegments.map((seg, i) => (
+        {segments.map((seg, i) => (
           <div key={i} className="flex items-center gap-3">
             <div
               className="h-3 w-3 rounded-full flex-shrink-0"
@@ -480,6 +370,59 @@ function getTrafficLight(pct: number) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  SKELETON COMPONENTS                                                */
+/* ------------------------------------------------------------------ */
+
+function SkeletonCard() {
+  return (
+    <div className="rounded-xl border border-[#2d3548] bg-[#1c2333] p-5 animate-pulse">
+      <div className="flex items-start justify-between">
+        <div className="space-y-3 flex-1">
+          <div className="h-3 w-24 rounded bg-[#2d3548]" />
+          <div className="h-8 w-16 rounded bg-[#2d3548]" />
+          <div className="h-3 w-20 rounded bg-[#2d3548]" />
+        </div>
+        <div className="h-11 w-11 rounded-xl bg-[#2d3548]" />
+      </div>
+    </div>
+  );
+}
+
+function SkeletonProtectionMap() {
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+      {Array.from({ length: 10 }).map((_, i) => (
+        <div
+          key={i}
+          className="flex flex-col items-center gap-2 rounded-xl border border-[#2d3548] bg-[#0f1117]/60 p-4 animate-pulse"
+        >
+          <div className="h-[52px] w-[52px] rounded-full bg-[#2d3548]" />
+          <div className="h-4 w-4 rounded bg-[#2d3548]" />
+          <div className="h-3 w-12 rounded bg-[#2d3548]" />
+          <div className="h-2.5 w-10 rounded bg-[#2d3548]" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SkeletonActivity() {
+  return (
+    <div className="space-y-4">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div key={i} className="flex items-start gap-3 p-2 animate-pulse">
+          <div className="h-8 w-8 rounded-lg bg-[#2d3548] flex-shrink-0" />
+          <div className="flex-1 space-y-2">
+            <div className="h-3 w-full rounded bg-[#2d3548]" />
+            <div className="h-2.5 w-16 rounded bg-[#2d3548]" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  CATEGORY DETAIL PANEL (modal overlay)                              */
 /* ------------------------------------------------------------------ */
 
@@ -616,15 +559,226 @@ function CategoryDetailPanel({
 }
 
 /* ------------------------------------------------------------------ */
+/*  ERROR STATE                                                        */
+/* ------------------------------------------------------------------ */
+
+function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-8 text-center">
+      <AlertTriangle className="h-10 w-10 mx-auto text-red-400 mb-3" />
+      <h3 className="text-lg font-semibold text-[#e2e8f0] mb-2">
+        Error al cargar datos
+      </h3>
+      <p className="text-sm text-[#94a3b8] mb-4">{message}</p>
+      <button
+        onClick={onRetry}
+        className="inline-flex items-center gap-2 rounded-xl border border-[#2d3548] bg-[#1c2333] px-4 py-2.5 text-sm font-medium text-[#e2e8f0] transition-all hover:border-[#3d4a63]"
+      >
+        <RefreshCw className="h-4 w-4" />
+        Reintentar
+      </button>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  MAIN DASHBOARD PAGE                                                */
 /* ------------------------------------------------------------------ */
 
 export default function DashboardPage() {
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
+  // Raw API data
+  const [scores, setScores] = useState<ProtectionScore[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [totalPolicies, setTotalPolicies] = useState(0);
+  const [activePoliciesCount, setActivePoliciesCount] = useState(0);
+
+  /* ----- Fetch data ----- */
+  const fetchDashboardData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [scoresRes, alertsRes, policiesRes] = await Promise.all([
+        fetch("/api/dashboard/protection-score"),
+        fetch("/api/dashboard/alerts"),
+        fetch("/api/policies?pageSize=100"),
+      ]);
+
+      const scoresJson: ApiResponse<ProtectionScore[]> = await scoresRes.json();
+      const alertsJson: ApiResponse<Alert[]> = await alertsRes.json();
+      const policiesJson: ApiResponse<PaginatedResponse<unknown>> = await policiesRes.json();
+
+      if (!scoresRes.ok || !scoresJson.success) {
+        throw new Error(scoresJson.error || "Error al cargar scores de proteccion");
+      }
+      if (!alertsRes.ok || !alertsJson.success) {
+        throw new Error(alertsJson.error || "Error al cargar alertas");
+      }
+      if (!policiesRes.ok || !policiesJson.success) {
+        throw new Error(policiesJson.error || "Error al cargar polizas");
+      }
+
+      const fetchedScores = scoresJson.data ?? [];
+      const fetchedAlerts = alertsJson.data ?? [];
+      const policiesData = policiesJson.data;
+
+      setScores(fetchedScores);
+      setAlerts(fetchedAlerts);
+      setTotalPolicies(policiesData?.total ?? 0);
+
+      // Count active policies from items
+      const activeCount = (policiesData?.items as Array<{ status?: string }> | undefined)?.filter(
+        (p) => p.status === "ACTIVE",
+      ).length ?? 0;
+      setActivePoliciesCount(activeCount);
+    } catch (err) {
+      console.error("[Dashboard] fetch error:", err);
+      setError(err instanceof Error ? err.message : "Error desconocido al cargar el dashboard");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, []);
+
+  /* ----- Derive stat cards ----- */
+  const statCards = useMemo<StatCard[]>(() => {
+    const expiringCount = scores.filter((s) => s.expiringWithin30Days).length;
+    const gapCount = scores.filter((s) => s.level === "RED").length;
+
+    return [
+      {
+        label: "Total Polizas",
+        value: String(totalPolicies),
+        trend: totalPolicies > 0 ? `${totalPolicies} registradas` : "Sin polizas",
+        trendUp: totalPolicies > 0,
+        icon: FileText,
+        color: "#3b82f6",
+        bgColor: "rgba(59,130,246,0.12)",
+      },
+      {
+        label: "Polizas Activas",
+        value: String(activePoliciesCount),
+        trend: totalPolicies > 0
+          ? `${Math.round((activePoliciesCount / totalPolicies) * 100)}% del total`
+          : "0% del total",
+        trendUp: activePoliciesCount > 0,
+        icon: ShieldCheck,
+        color: "#10b981",
+        bgColor: "rgba(16,185,129,0.12)",
+      },
+      {
+        label: "Por Vencer (30 dias)",
+        value: String(expiringCount),
+        trend: expiringCount > 0 ? "Requiere atencion" : "Todo en orden",
+        trendUp: expiringCount === 0,
+        icon: AlertTriangle,
+        color: "#f59e0b",
+        bgColor: "rgba(245,158,11,0.12)",
+      },
+      {
+        label: "Vacios de Cobertura",
+        value: String(gapCount),
+        trend: gapCount > 0 ? "Categorias sin cubrir" : "Cobertura completa",
+        trendUp: gapCount === 0,
+        icon: ShieldOff,
+        color: "#ef4444",
+        bgColor: "rgba(239,68,68,0.12)",
+      },
+    ];
+  }, [scores, totalPolicies, activePoliciesCount]);
+
+  /* ----- Derive protection categories ----- */
+  const protectionCategories = useMemo<ProtectionCategory[]>(() => {
+    return scores.map((score) => {
+      const config = CATEGORY_CONFIG[score.category] || CATEGORY_CONFIG.OTRO;
+      const pct = levelToPercent(score.level, score.confidence);
+
+      let simpleMessage: string | undefined;
+      if (score.activePolicies === 0) {
+        simpleMessage = `Sin cobertura - Te recomendamos cotizar un seguro de ${config.name.toLowerCase()}`;
+      } else {
+        const coveredStr = score.totalCoveredAmount > 0
+          ? ` - ${formatCLP(score.totalCoveredAmount)}`
+          : "";
+        simpleMessage = `${score.activePolicies} ${score.activePolicies === 1 ? "poliza activa" : "polizas activas"}${coveredStr}`;
+      }
+
+      return {
+        name: config.name,
+        pct,
+        policies: score.activePolicies,
+        icon: config.icon,
+        color: config.color,
+        simpleMessage,
+      };
+    });
+  }, [scores]);
+
+  /* ----- Derive donut segments ----- */
+  const donutSegments = useMemo<DonutSegment[]>(() => {
+    const withPolicies = scores.filter((s) => s.activePolicies > 0);
+    const totalActive = withPolicies.reduce((sum, s) => sum + s.activePolicies, 0);
+
+    if (totalActive === 0) {
+      return [{ label: "Sin datos", pct: 100, color: "#475569" }];
+    }
+
+    return withPolicies.map((score) => {
+      const config = CATEGORY_CONFIG[score.category] || CATEGORY_CONFIG.OTRO;
+      return {
+        label: config.name,
+        pct: Math.round((score.activePolicies / totalActive) * 100),
+        color: config.color,
+      };
+    });
+  }, [scores]);
+
+  /* ----- Derive coverage bars ----- */
+  const coverageBars = useMemo<CoverageBar[]>(() => {
+    return scores
+      .filter((s) => s.activePolicies > 0)
+      .map((score) => {
+        const config = CATEGORY_CONFIG[score.category] || CATEGORY_CONFIG.OTRO;
+        return {
+          label: config.name,
+          pct: levelToPercent(score.level, score.confidence),
+          color: config.color,
+          gradEnd: config.gradEnd,
+        };
+      });
+  }, [scores]);
+
+  /* ----- Derive activity items ----- */
+  const activityItems = useMemo<ActivityItem[]>(() => {
+    if (alerts.length === 0) return [];
+    return alerts.slice(0, 6).map(alertToActivity);
+  }, [alerts]);
+
+  /* ----- Selected category for modal ----- */
   const selectedCategory = expandedCategory
     ? protectionCategories.find((c) => c.name === expandedCategory)
     : null;
+
+  /* ----- Error state ----- */
+  if (error && !loading) {
+    return (
+      <div className="mx-auto max-w-7xl space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-[#e2e8f0]">Panel de Control</h1>
+          <p className="mt-1 text-sm text-[#64748b]">
+            Resumen completo de tu cobertura de seguros
+          </p>
+        </div>
+        <ErrorState message={error} onRetry={fetchDashboardData} />
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -661,10 +815,14 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-2 rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1">
-              <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
-              <span className="text-xs font-medium text-amber-400">3 brechas detectadas</span>
-            </div>
+            {!loading && (
+              <div className="hidden sm:flex items-center gap-2 rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1">
+                <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+                <span className="text-xs font-medium text-amber-400">
+                  {scores.filter((s) => s.level === "RED").length} brechas detectadas
+                </span>
+              </div>
+            )}
             <svg className="h-5 w-5 text-[#64748b] group-hover:text-purple-400 transition-colors group-hover:translate-x-1 duration-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M5 12h14M12 5l7 7-7 7"/></svg>
           </div>
         </div>
@@ -674,57 +832,59 @@ export default function DashboardPage() {
       {/*  ROW 1: STAT CARDS                                            */}
       {/* ============================================================ */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {statCards.map((card, i) => {
-          const Icon = card.icon;
-          return (
-            <div
-              key={i}
-              className="group relative overflow-hidden rounded-xl border border-[#2d3548] bg-[#1c2333] p-5 transition-all duration-300 hover:border-[#3d4558] hover:bg-[#232b3d] hover:scale-[1.02]"
-            >
-              <div
-                className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"
-                style={{
-                  background: `radial-gradient(circle at top right, ${card.bgColor}, transparent 70%)`,
-                }}
-              />
-              <div className="relative flex items-start justify-between">
-                <div className="space-y-2">
-                  <p className="text-sm font-medium text-[#64748b]">
-                    {card.label}
-                  </p>
-                  <p className="text-3xl font-bold text-[#e2e8f0]">
-                    {card.value}
-                  </p>
-                  <div className="flex items-center gap-1">
-                    {card.trendUp ? (
-                      <TrendingUp
-                        className="h-3.5 w-3.5"
-                        style={{ color: card.color }}
-                      />
-                    ) : (
-                      <ArrowUpRight
-                        className="h-3.5 w-3.5"
-                        style={{ color: card.color }}
-                      />
-                    )}
-                    <span
-                      className="text-xs font-medium"
-                      style={{ color: card.color }}
+        {loading
+          ? Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
+          : statCards.map((card, i) => {
+              const Icon = card.icon;
+              return (
+                <div
+                  key={i}
+                  className="group relative overflow-hidden rounded-xl border border-[#2d3548] bg-[#1c2333] p-5 transition-all duration-300 hover:border-[#3d4558] hover:bg-[#232b3d] hover:scale-[1.02]"
+                >
+                  <div
+                    className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"
+                    style={{
+                      background: `radial-gradient(circle at top right, ${card.bgColor}, transparent 70%)`,
+                    }}
+                  />
+                  <div className="relative flex items-start justify-between">
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-[#64748b]">
+                        {card.label}
+                      </p>
+                      <p className="text-3xl font-bold text-[#e2e8f0]">
+                        {card.value}
+                      </p>
+                      <div className="flex items-center gap-1">
+                        {card.trendUp ? (
+                          <TrendingUp
+                            className="h-3.5 w-3.5"
+                            style={{ color: card.color }}
+                          />
+                        ) : (
+                          <ArrowUpRight
+                            className="h-3.5 w-3.5"
+                            style={{ color: card.color }}
+                          />
+                        )}
+                        <span
+                          className="text-xs font-medium"
+                          style={{ color: card.color }}
+                        >
+                          {card.trend}
+                        </span>
+                      </div>
+                    </div>
+                    <div
+                      className="flex h-11 w-11 items-center justify-center rounded-xl"
+                      style={{ backgroundColor: card.bgColor }}
                     >
-                      {card.trend}
-                    </span>
+                      <Icon className="h-5 w-5" style={{ color: card.color }} />
+                    </div>
                   </div>
                 </div>
-                <div
-                  className="flex h-11 w-11 items-center justify-center rounded-xl"
-                  style={{ backgroundColor: card.bgColor }}
-                >
-                  <Icon className="h-5 w-5" style={{ color: card.color }} />
-                </div>
-              </div>
-            </div>
-          );
-        })}
+              );
+            })}
       </div>
 
       {/* ============================================================ */}
@@ -755,40 +915,44 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-            {protectionCategories.map((cat, i) => {
-              const Icon = cat.icon;
-              const traffic = getTrafficLight(cat.pct);
-              return (
-                <button
-                  key={i}
-                  onClick={() => setExpandedCategory(cat.name)}
-                  className="group relative flex flex-col items-center gap-2 rounded-xl border border-[#2d3548] bg-[#0f1117]/60 p-4 transition-all duration-300 hover:border-[#3d4558] hover:bg-[#232b3d]/60 cursor-pointer text-center"
-                >
-                  {/* Glow on hover */}
-                  <div
-                    className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"
-                    style={{
-                      background: `radial-gradient(circle at center, ${cat.color}10, transparent 70%)`,
-                    }}
-                  />
-                  <RingProgress pct={cat.pct} color={traffic.color} size={52} />
-                  <Icon className="h-4 w-4" style={{ color: cat.color }} />
-                  <span className="text-xs font-medium text-[#e2e8f0] text-center leading-tight">
-                    {cat.name}
-                  </span>
-                  <span className="text-[10px] text-[#64748b]">
-                    {cat.policies}{" "}
-                    {cat.policies === 1 ? "poliza" : "polizas"}
-                  </span>
-                  {/* Expand indicator */}
-                  <ChevronRight
-                    className="absolute top-2 right-2 h-3 w-3 text-[#64748b] opacity-0 group-hover:opacity-100 transition-opacity"
-                  />
-                </button>
-              );
-            })}
-          </div>
+          {loading ? (
+            <SkeletonProtectionMap />
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+              {protectionCategories.map((cat, i) => {
+                const Icon = cat.icon;
+                const traffic = getTrafficLight(cat.pct);
+                return (
+                  <button
+                    key={i}
+                    onClick={() => setExpandedCategory(cat.name)}
+                    className="group relative flex flex-col items-center gap-2 rounded-xl border border-[#2d3548] bg-[#0f1117]/60 p-4 transition-all duration-300 hover:border-[#3d4558] hover:bg-[#232b3d]/60 cursor-pointer text-center"
+                  >
+                    {/* Glow on hover */}
+                    <div
+                      className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"
+                      style={{
+                        background: `radial-gradient(circle at center, ${cat.color}10, transparent 70%)`,
+                      }}
+                    />
+                    <RingProgress pct={cat.pct} color={traffic.color} size={52} />
+                    <Icon className="h-4 w-4" style={{ color: cat.color }} />
+                    <span className="text-xs font-medium text-[#e2e8f0] text-center leading-tight">
+                      {cat.name}
+                    </span>
+                    <span className="text-[10px] text-[#64748b]">
+                      {cat.policies}{" "}
+                      {cat.policies === 1 ? "poliza" : "polizas"}
+                    </span>
+                    {/* Expand indicator */}
+                    <ChevronRight
+                      className="absolute top-2 right-2 h-3 w-3 text-[#64748b] opacity-0 group-hover:opacity-100 transition-opacity"
+                    />
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Activity Panel (1/3) */}
@@ -802,37 +966,49 @@ export default function DashboardPage() {
             </button>
           </div>
 
-          <div className="space-y-4">
-            {activityItems.map((item, i) => {
-              const Icon = item.icon;
-              return (
-                <div
-                  key={i}
-                  className="group flex items-start gap-3 rounded-lg p-2 -mx-2 transition-colors duration-200 hover:bg-white/[0.03]"
-                >
+          {loading ? (
+            <SkeletonActivity />
+          ) : activityItems.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <Clock className="h-8 w-8 text-[#94a3b8]/30 mb-3" />
+              <p className="text-sm text-[#94a3b8]">Sin actividad reciente</p>
+              <p className="text-xs text-[#64748b] mt-1">
+                Las alertas y eventos apareceran aqui
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {activityItems.map((item, i) => {
+                const Icon = item.icon;
+                return (
                   <div
-                    className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg mt-0.5"
-                    style={{
-                      backgroundColor: `${item.color}15`,
-                    }}
+                    key={i}
+                    className="group flex items-start gap-3 rounded-lg p-2 -mx-2 transition-colors duration-200 hover:bg-white/[0.03]"
                   >
-                    <Icon
-                      className="h-4 w-4"
-                      style={{ color: item.color }}
-                    />
+                    <div
+                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg mt-0.5"
+                      style={{
+                        backgroundColor: `${item.color}15`,
+                      }}
+                    >
+                      <Icon
+                        className="h-4 w-4"
+                        style={{ color: item.color }}
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-[#e2e8f0] leading-snug">
+                        {item.text}
+                      </p>
+                      <p className="text-xs text-[#475569] mt-0.5">
+                        {item.time}
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-[#e2e8f0] leading-snug">
-                      {item.text}
-                    </p>
-                    <p className="text-xs text-[#475569] mt-0.5">
-                      {item.time}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
@@ -850,7 +1026,13 @@ export default function DashboardPage() {
               Proporcion de polizas por tipo de seguro
             </p>
           </div>
-          <DonutChart />
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-[#94a3b8]" />
+            </div>
+          ) : (
+            <DonutChart segments={donutSegments} totalPolicies={totalPolicies} />
+          )}
         </div>
 
         {/* Coverage Progress Bars */}
@@ -863,18 +1045,40 @@ export default function DashboardPage() {
               Nivel de proteccion actual por area
             </p>
           </div>
-          <div className="space-y-5">
-            {coverageBars.map((bar, i) => (
-              <AnimatedBar
-                key={i}
-                pct={bar.pct}
-                color={bar.color}
-                gradEnd={bar.gradEnd}
-                label={bar.label}
-                delay={i * 100}
-              />
-            ))}
-          </div>
+          {loading ? (
+            <div className="space-y-5">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="space-y-2 animate-pulse">
+                  <div className="flex justify-between">
+                    <div className="h-3 w-20 rounded bg-[#2d3548]" />
+                    <div className="h-3 w-8 rounded bg-[#2d3548]" />
+                  </div>
+                  <div className="h-2.5 w-full rounded-full bg-[#2d3548]" />
+                </div>
+              ))}
+            </div>
+          ) : coverageBars.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <ShieldOff className="h-8 w-8 text-[#94a3b8]/30 mb-3" />
+              <p className="text-sm text-[#94a3b8]">Sin datos de cobertura</p>
+              <p className="text-xs text-[#64748b] mt-1">
+                Agrega polizas para ver tu nivel de proteccion
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {coverageBars.map((bar, i) => (
+                <AnimatedBar
+                  key={i}
+                  pct={bar.pct}
+                  color={bar.color}
+                  gradEnd={bar.gradEnd}
+                  label={bar.label}
+                  delay={i * 100}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

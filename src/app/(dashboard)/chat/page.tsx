@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
   MessageSquare,
   Send,
@@ -11,266 +12,117 @@ import {
   CheckCircle2,
   ChevronRight,
   AlertCircle,
+  Trash2,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Citation {
-  label: string;
-  color: string;
-}
-
-interface Confidence {
-  level: string;
-  color: string;
+  fileName: string;
+  pageNumber: number | null;
+  section: string | null;
+  chunkId: string;
 }
 
 interface Message {
   id: string;
-  role: "user" | "assistant" | "typing";
+  role: "user" | "assistant";
   content: string;
   citations?: Citation[];
-  confidence?: Confidence;
-  disclaimer?: string;
-  timestamp: string;
-}
-
-interface Conversation {
-  id: string;
-  title: string;
-  messages: Message[];
+  confidenceLabel?: string | null;
   createdAt: string;
 }
 
-// ─── Mock AI response logic ──────────────────────────────────────────────────
-
-function generateMockResponse(userMessage: string): Omit<Message, "id" | "timestamp"> {
-  const lower = userMessage.toLowerCase();
-
-  if (
-    lower.includes("cirugia") ||
-    lower.includes("operacion") ||
-    lower.includes("rodilla")
-  ) {
-    return {
-      role: "assistant",
-      content: `Basandome en tus polizas vigentes, tienes cobertura combinada para una cirugia de rodilla. Aqui va el desglose:
-
-**1. Seguro Complementario Salud - MetLife**
-- Cobertura quirurgica: hasta $2.500.000 CLP por evento
-- Deducible aplicable: $200.000 CLP
-- Copago: 20% sobre el monto cubierto
-- Cobertura neta estimada: **$2.500.000 CLP**
-
-**2. Seguro Hospitalizacion - Consorcio**
-- Cobertura por hospitalizacion asociada: hasta $1.100.000 CLP
-- Deducible: $100.000 CLP
-- Cobertura neta estimada: **$1.100.000 CLP**
-
-**Resumen estimado:**
-- Cobertura total combinada: **$3.600.000 CLP**
-- Tu gasto de bolsillo estimado: **$900.000 CLP**
-
-Ten en cuenta que estos montos son aproximados y dependen de la red de prestadores, convenios vigentes y condiciones especificas de cada poliza.`,
-      citations: [
-        {
-          label: "Poliza MetLife, Pag 12",
-          color: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
-        },
-        {
-          label: "Poliza Consorcio, Pag 8",
-          color: "bg-purple-500/20 text-purple-400 border-purple-500/30",
-        },
-      ],
-      confidence: {
-        level: "Alta confianza",
-        color: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-      },
-      disclaimer:
-        "Esta respuesta es orientativa y no reemplaza asesoria profesional. Consulta con tu aseguradora para montos definitivos.",
-    };
-  }
-
-  if (lower.includes("hospital") || lower.includes("hospitalizacion")) {
-    return {
-      role: "assistant",
-      content: `Para una hospitalizacion de 3 dias, el costo estimado es de **$1.800.000 CLP**. Tus coberturas aplican asi:
-
-**1. Seguro Complementario Salud - MetLife**
-- Tarifa diaria cubierta: hasta $350.000 CLP/dia
-- Gastos de sala y pension incluidos
-- Cobertura estimada para 3 dias: **$1.400.000 CLP**
-
-**2. Seguro Hospitalizacion - Consorcio**
-- Complemento diario: $100.000 CLP/dia
-- Cobertura estimada para 3 dias: **$300.000 CLP**
-
-**Resumen estimado:**
-- Cobertura total combinada: **$1.700.000 CLP**
-- Tu gasto de bolsillo estimado: **$100.000 CLP**
-
-Recuerda utilizar prestadores dentro de la red convenida para obtener estos montos.`,
-      citations: [
-        {
-          label: "Poliza MetLife, Pag 15",
-          color: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
-        },
-        {
-          label: "Poliza Consorcio, Pag 10",
-          color: "bg-purple-500/20 text-purple-400 border-purple-500/30",
-        },
-      ],
-      confidence: {
-        level: "Alta confianza",
-        color: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-      },
-      disclaimer:
-        "Esta respuesta es orientativa y no reemplaza asesoria profesional. Consulta con tu aseguradora para montos definitivos.",
-    };
-  }
-
-  if (
-    lower.includes("auto") ||
-    lower.includes("vehiculo") ||
-    lower.includes("choque")
-  ) {
-    return {
-      role: "assistant",
-      content: `Tu seguro automotriz cubre este tipo de evento. Aqui el detalle:
-
-**Seguro Automotriz - BCI Seguros**
-- Cobertura por danos: hasta **$15.000.000 CLP**
-- Deducible: 3 UF (~$110.000 CLP)
-- Incluye: danos propios, danos a terceros, robo parcial y total
-- Grua incluida hasta 100 km
-
-**Resumen estimado:**
-- Cobertura maxima: **$15.000.000 CLP**
-- Deducible a pagar: **$110.000 CLP** (3 UF)
-
-Para hacer efectiva la cobertura, debes hacer la denuncia dentro de las primeras 48 horas del siniestro y presentar el parte policial si corresponde.`,
-      citations: [
-        {
-          label: "Poliza BCI Auto, Pag 5",
-          color: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-        },
-        {
-          label: "Poliza BCI Auto, Pag 9",
-          color: "bg-blue-500/20 text-blue-400 border-blue-500/30",
-        },
-      ],
-      confidence: {
-        level: "Alta confianza",
-        color: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-      },
-      disclaimer:
-        "Esta respuesta es orientativa y no reemplaza asesoria profesional. Consulta con tu aseguradora para montos definitivos.",
-    };
-  }
-
-  if (
-    lower.includes("hogar") ||
-    lower.includes("incendio") ||
-    lower.includes("casa")
-  ) {
-    return {
-      role: "assistant",
-      content: `Tu seguro de hogar te protege ante varios siniestros. Aqui el detalle:
-
-**Seguro de Hogar - Consorcio**
-- Cobertura por incendio: hasta **$80.000.000 CLP** (valor del inmueble)
-- Cobertura por contenido: hasta **$15.000.000 CLP**
-- Cobertura por terremoto: hasta **$60.000.000 CLP** (2% deducible sobre monto asegurado)
-- Responsabilidad civil: **$5.000.000 CLP**
-- Robo con fuerza: hasta **$8.000.000 CLP**
-
-**Importante:**
-- Deducible general: 1 UF (~$37.000 CLP)
-- Deducible terremoto: 2% del monto asegurado
-- La poliza exige medidas minimas de seguridad (cerraduras, extintores)`,
-      citations: [
-        {
-          label: "Poliza Hogar Consorcio, Pag 3",
-          color: "bg-purple-500/20 text-purple-400 border-purple-500/30",
-        },
-        {
-          label: "Poliza Hogar Consorcio, Pag 7",
-          color: "bg-purple-500/20 text-purple-400 border-purple-500/30",
-        },
-      ],
-      confidence: {
-        level: "Alta confianza",
-        color: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-      },
-      disclaimer:
-        "Esta respuesta es orientativa y no reemplaza asesoria profesional. Consulta con tu aseguradora para montos definitivos.",
-    };
-  }
-
-  if (lower.includes("vida") || lower.includes("fallecimiento")) {
-    return {
-      role: "assistant",
-      content: `Tu seguro de vida con Consorcio te otorga la siguiente proteccion:
-
-**Seguro de Vida - Consorcio**
-- Capital asegurado por fallecimiento: **$50.000.000 CLP**
-- Muerte accidental (doble indemnizacion): **$100.000.000 CLP**
-- Invalidez total y permanente: **$50.000.000 CLP**
-- Enfermedades graves (cancer, infarto, ACV): **$25.000.000 CLP**
-
-**Beneficiarios registrados:**
-- Conyuge: 60%
-- Hijos: 40% (partes iguales)
-
-**Estado:** Poliza vigente, prima al dia. Proxima renovacion: Diciembre 2026.`,
-      citations: [
-        {
-          label: "Poliza Vida Consorcio, Pag 2",
-          color: "bg-purple-500/20 text-purple-400 border-purple-500/30",
-        },
-        {
-          label: "Poliza Vida Consorcio, Pag 6",
-          color: "bg-purple-500/20 text-purple-400 border-purple-500/30",
-        },
-      ],
-      confidence: {
-        level: "Alta confianza",
-        color: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-      },
-      disclaimer:
-        "Esta respuesta es orientativa y no reemplaza asesoria profesional. Consulta con tu aseguradora para montos definitivos.",
-    };
-  }
-
-  // Default response
-  return {
-    role: "assistant",
-    content:
-      "Basandome en tus polizas cargadas, puedo ayudarte con consultas sobre coberturas de salud, vehiculo, hogar y vida. ¿Que te gustaria saber?\n\nPrueba preguntarme cosas como:\n- \"¿Que cubre mi seguro si me opero de la rodilla?\"\n- \"¿Cuanto cubre mi seguro si choco el auto?\"\n- \"¿Que pasa si hay un incendio en mi casa?\"\n- \"¿Cuanto es mi seguro de vida?\"",
-    confidence: {
-      level: "Media",
-      color: "bg-amber-500/20 text-amber-400 border-amber-500/30",
-    },
-    disclaimer:
-      "Esta respuesta es orientativa y no reemplaza asesoria profesional.",
-  };
+interface ConversationPreview {
+  id: string;
+  title: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lastMessage: {
+    content: string;
+    role: string;
+    createdAt: string;
+  } | null;
+  messageCount: number;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Confidence mapping ─────────────────────────────────────────────────────
 
-function getTimeString(): string {
-  const now = new Date();
-  return now.toLocaleTimeString("es-CL", {
+const CONFIDENCE_MAP: Record<string, { level: string; color: string }> = {
+  HIGH: {
+    level: "Alta confianza",
+    color: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+  },
+  MEDIUM: {
+    level: "Confianza media",
+    color: "bg-amber-500/20 text-amber-400 border-amber-500/30",
+  },
+  LOW: {
+    level: "Confianza baja",
+    color: "bg-orange-500/20 text-orange-400 border-orange-500/30",
+  },
+  UNCERTAIN: {
+    level: "Incierto",
+    color: "bg-red-500/20 text-red-400 border-red-500/30",
+  },
+};
+
+// ─── Citation color palette ─────────────────────────────────────────────────
+
+const CITATION_COLORS = [
+  "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
+  "bg-purple-500/20 text-purple-400 border-purple-500/30",
+  "bg-blue-500/20 text-blue-400 border-blue-500/30",
+  "bg-pink-500/20 text-pink-400 border-pink-500/30",
+  "bg-teal-500/20 text-teal-400 border-teal-500/30",
+];
+
+function getCitationColor(index: number): string {
+  return CITATION_COLORS[index % CITATION_COLORS.length];
+}
+
+function formatCitationLabel(citation: Citation): string {
+  let label = citation.fileName;
+  if (citation.pageNumber) label += `, Pag ${citation.pageNumber}`;
+  if (citation.section) label += ` - ${citation.section}`;
+  return label;
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function formatTime(dateStr: string): string {
+  const d = new Date(dateStr);
+  return d.toLocaleTimeString("es-CL", {
     hour: "2-digit",
     minute: "2-digit",
   });
 }
 
-function generateId(): string {
-  return Math.random().toString(36).substring(2, 12);
+function parseCitations(raw: string | null | undefined): Citation[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
-// ─── Typing indicator component ──────────────────────────────────────────────
+// ─── Map API message to local Message type ──────────────────────────────────
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapApiMessage(msg: any): Message {
+  return {
+    id: msg.id,
+    role: msg.role === "USER" ? "user" : "assistant",
+    content: msg.content,
+    citations: parseCitations(msg.citations),
+    confidenceLabel: msg.confidenceLabel ?? null,
+    createdAt: msg.createdAt,
+  };
+}
+
+// ─── Typing indicator component ─────────────────────────────────────────────
 
 function TypingIndicator() {
   return (
@@ -301,31 +153,99 @@ function TypingIndicator() {
   );
 }
 
-// ─── Main component ──────────────────────────────────────────────────────────
+// ─── Main component ─────────────────────────────────────────────────────────
 
 export default function ChatPage() {
-  const [conversations, setConversations] = useState<Conversation[]>([
-    {
-      id: "conv-1",
-      title: "Nueva conversacion",
-      messages: [],
-      createdAt: getTimeString(),
-    },
-  ]);
-  const [activeConvId, setActiveConvId] = useState("conv-1");
+  return (
+    <Suspense fallback={null}>
+      <ChatPageInner />
+    </Suspense>
+  );
+}
+
+function ChatPageInner() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  const [conversations, setConversations] = useState<ConversationPreview[]>([]);
+  const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [isLoadingConvs, setIsLoadingConvs] = useState(true);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const initialLoadDone = useRef(false);
 
-  const activeConv = conversations.find((c) => c.id === activeConvId)!;
+  // ── Fetch conversation list ───────────────────────────────────────────────
 
-  // Scroll to bottom on new messages or typing
+  const fetchConversations = useCallback(async () => {
+    try {
+      const res = await fetch("/api/chat");
+      const json = await res.json();
+      if (json.success) {
+        setConversations(json.data.items ?? []);
+      }
+    } catch {
+      // silent fail for list
+    } finally {
+      setIsLoadingConvs(false);
+    }
+  }, []);
+
+  // ── Fetch messages for a conversation ─────────────────────────────────────
+
+  const loadConversation = useCallback(async (convId: string) => {
+    setIsLoadingMessages(true);
+    setMessages([]);
+    setActiveConvId(convId);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/chat/${convId}`);
+      const json = await res.json();
+
+      if (!json.success) {
+        setError(json.error ?? "Error al cargar conversacion");
+        setActiveConvId(null);
+        return;
+      }
+
+      const apiMessages = (json.data.messages ?? []).map(mapApiMessage);
+      setMessages(apiMessages);
+    } catch {
+      setError("Error de conexion al cargar la conversacion");
+      setActiveConvId(null);
+    } finally {
+      setIsLoadingMessages(false);
+    }
+  }, []);
+
+  // ── Initial load ──────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (initialLoadDone.current) return;
+    initialLoadDone.current = true;
+
+    fetchConversations().then(() => {
+      const convParam = searchParams.get("conv");
+      if (convParam) {
+        loadConversation(convParam);
+      }
+    });
+  }, [fetchConversations, loadConversation, searchParams]);
+
+  // ── Scroll to bottom on new messages or typing ────────────────────────────
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [activeConv.messages, isTyping]);
+  }, [messages, isTyping]);
 
-  // Auto-resize textarea
+  // ── Auto-resize textarea ──────────────────────────────────────────────────
+
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
@@ -334,79 +254,189 @@ export default function ChatPage() {
     }
   }, [inputValue]);
 
-  const handleSend = useCallback(() => {
-    const text = inputValue.trim();
-    if (!text || isTyping) return;
+  // ── Create new conversation ───────────────────────────────────────────────
 
-    const userMsg: Message = {
-      id: generateId(),
-      role: "user",
-      content: text,
-      timestamp: getTimeString(),
-    };
+  const handleNewConversation = useCallback(async () => {
+    setError(null);
 
-    // Update conversation: add user message, auto-generate title from first message
-    setConversations((prev) =>
-      prev.map((conv) => {
-        if (conv.id !== activeConvId) return conv;
-        const isFirstMessage = conv.messages.length === 0;
-        return {
-          ...conv,
-          title: isFirstMessage
-            ? text.length > 35
-              ? text.substring(0, 35) + "..."
-              : text
-            : conv.title,
-          messages: [...conv.messages, userMsg],
-        };
-      })
-    );
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const json = await res.json();
 
-    setInputValue("");
-    setIsTyping(true);
+      if (!json.success) {
+        setError(json.error ?? "Error al crear conversacion");
+        return;
+      }
 
-    // Show typing indicator for 1.5s, then generate response after another 1.5s
-    setTimeout(() => {
-      // Typing is already showing, now after another 1.5s show the response
-      setTimeout(() => {
-        const mockResponse = generateMockResponse(text);
-        const assistantMsg: Message = {
-          id: generateId(),
-          role: "assistant",
-          content: mockResponse.content,
-          citations: mockResponse.citations,
-          confidence: mockResponse.confidence,
-          disclaimer: mockResponse.disclaimer,
-          timestamp: getTimeString(),
-        };
+      const conv = json.data.conversation;
+      const newPreview: ConversationPreview = {
+        id: conv.id,
+        title: conv.title,
+        createdAt: conv.createdAt,
+        updatedAt: conv.updatedAt,
+        lastMessage: null,
+        messageCount: 0,
+      };
 
+      setConversations((prev) => [newPreview, ...prev]);
+      setActiveConvId(conv.id);
+      setMessages([]);
+      setInputValue("");
+      setIsTyping(false);
+
+      // Update URL without full reload
+      router.replace(`/chat?conv=${conv.id}`, { scroll: false });
+    } catch {
+      setError("Error de conexion al crear conversacion");
+    }
+  }, [router]);
+
+  // ── Send message ──────────────────────────────────────────────────────────
+
+  const handleSend = useCallback(
+    async (textOverride?: string) => {
+      const text = (textOverride ?? inputValue).trim();
+      if (!text || isTyping) return;
+
+      // If no active conversation, create one first
+      let convId = activeConvId;
+
+      if (!convId) {
+        try {
+          const res = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          });
+          const json = await res.json();
+
+          if (!json.success) {
+            setError(json.error ?? "Error al crear conversacion");
+            return;
+          }
+
+          const conv = json.data.conversation;
+          convId = conv.id;
+
+          const newPreview: ConversationPreview = {
+            id: conv.id,
+            title: conv.title,
+            createdAt: conv.createdAt,
+            updatedAt: conv.updatedAt,
+            lastMessage: null,
+            messageCount: 0,
+          };
+
+          setConversations((prev) => [newPreview, ...prev]);
+          setActiveConvId(conv.id);
+          router.replace(`/chat?conv=${conv.id}`, { scroll: false });
+        } catch {
+          setError("Error de conexion al crear conversacion");
+          return;
+        }
+      }
+
+      // Optimistic: add user message immediately
+      const tempUserMsg: Message = {
+        id: "temp-" + Date.now(),
+        role: "user",
+        content: text,
+        createdAt: new Date().toISOString(),
+      };
+
+      setMessages((prev) => [...prev, tempUserMsg]);
+      setInputValue("");
+      setIsTyping(true);
+      setError(null);
+
+      try {
+        const res = await fetch(`/api/chat/${convId}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: text }),
+        });
+        const json = await res.json();
+
+        if (!json.success) {
+          setIsTyping(false);
+          setError(json.error ?? "Error al enviar mensaje");
+          // Remove optimistic message
+          setMessages((prev) => prev.filter((m) => m.id !== tempUserMsg.id));
+          return;
+        }
+
+        const realUserMsg = mapApiMessage(json.data.userMessage);
+        const assistantMsg = mapApiMessage(json.data.assistantMessage);
+
+        // Replace temp message with real one, add assistant response
+        setMessages((prev) => [
+          ...prev.filter((m) => m.id !== tempUserMsg.id),
+          realUserMsg,
+          assistantMsg,
+        ]);
+
+        // Update conversation list (title may have changed, messageCount, lastMessage)
         setConversations((prev) =>
-          prev.map((conv) => {
-            if (conv.id !== activeConvId) return conv;
+          prev.map((c) => {
+            if (c.id !== convId) return c;
             return {
-              ...conv,
-              messages: [...conv.messages, assistantMsg],
+              ...c,
+              title:
+                c.messageCount === 0
+                  ? text.length > 50
+                    ? text.substring(0, 50) + "..."
+                    : text
+                  : c.title,
+              messageCount: c.messageCount + 2,
+              lastMessage: {
+                content: assistantMsg.content,
+                role: "ASSISTANT",
+                createdAt: assistantMsg.createdAt,
+              },
+              updatedAt: new Date().toISOString(),
             };
           })
         );
+      } catch {
+        setError("Error de conexion al enviar mensaje");
+        setMessages((prev) => prev.filter((m) => m.id !== tempUserMsg.id));
+      } finally {
         setIsTyping(false);
-      }, 1500);
-    }, 1500);
-  }, [inputValue, isTyping, activeConvId]);
+      }
+    },
+    [inputValue, isTyping, activeConvId, router]
+  );
 
-  const handleNewConversation = () => {
-    const newId = "conv-" + generateId();
-    const newConv: Conversation = {
-      id: newId,
-      title: "Nueva conversacion",
-      messages: [],
-      createdAt: getTimeString(),
-    };
-    setConversations((prev) => [newConv, ...prev]);
-    setActiveConvId(newId);
-    setInputValue("");
-    setIsTyping(false);
-  };
+  // ── Delete conversation ───────────────────────────────────────────────────
+
+  const handleDeleteConversation = useCallback(
+    async (convId: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+
+      try {
+        const res = await fetch(`/api/chat/${convId}`, { method: "DELETE" });
+        const json = await res.json();
+
+        if (json.success) {
+          setConversations((prev) => prev.filter((c) => c.id !== convId));
+          if (activeConvId === convId) {
+            setActiveConvId(null);
+            setMessages([]);
+            router.replace("/chat", { scroll: false });
+          }
+        }
+      } catch {
+        // silent fail
+      }
+    },
+    [activeConvId, router]
+  );
+
+  // ── Keyboard ──────────────────────────────────────────────────────────────
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -414,6 +444,16 @@ export default function ChatPage() {
       handleSend();
     }
   };
+
+  // ── Handle clicking a conversation ────────────────────────────────────────
+
+  const handleSelectConversation = (convId: string) => {
+    if (convId === activeConvId) return;
+    loadConversation(convId);
+    router.replace(`/chat?conv=${convId}`, { scroll: false });
+  };
+
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex h-[calc(100vh-5rem)] gap-0 -m-6">
@@ -435,49 +475,71 @@ export default function ChatPage() {
 
         {/* Conversation list */}
         <div className="flex-1 overflow-y-auto">
-          {conversations.map((conv) => {
-            const lastMsg =
-              conv.messages.length > 0
-                ? conv.messages[conv.messages.length - 1]
-                : null;
-            const preview = lastMsg
-              ? lastMsg.content.substring(0, 50) +
-                (lastMsg.content.length > 50 ? "..." : "")
-              : "Sin mensajes aun";
+          {isLoadingConvs ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
+            </div>
+          ) : conversations.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center px-4">
+              <MessageSquare className="h-8 w-8 text-[#94a3b8]/40 mb-2" />
+              <p className="text-sm text-[#94a3b8]">
+                No hay conversaciones aun
+              </p>
+              <p className="text-xs text-[#94a3b8]/60 mt-1">
+                Crea una nueva para comenzar
+              </p>
+            </div>
+          ) : (
+            conversations.map((conv) => {
+              const preview = conv.lastMessage
+                ? conv.lastMessage.content.substring(0, 50) +
+                  (conv.lastMessage.content.length > 50 ? "..." : "")
+                : "Sin mensajes aun";
+              const title = conv.title || "Nueva conversacion";
 
-            return (
-              <button
-                key={conv.id}
-                onClick={() => setActiveConvId(conv.id)}
-                className={`w-full text-left p-4 border-b border-[#2d3548]/50 transition-colors ${
-                  activeConvId === conv.id
-                    ? "bg-[#1c2333] border-l-2 border-l-blue-500"
-                    : "hover:bg-[#1c2333]/50"
-                }`}
-              >
-                <div className="flex items-start gap-3">
-                  <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10">
-                    <MessageSquare className="h-4 w-4 text-blue-400" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-[#e2e8f0]">
-                      {conv.title}
-                    </p>
-                    <p className="mt-0.5 truncate text-xs text-[#94a3b8]">
-                      {preview}
-                    </p>
-                    <div className="mt-1.5 flex items-center gap-2 text-xs text-[#94a3b8]">
-                      <Clock className="h-3 w-3" />
-                      <span>{conv.createdAt}</span>
-                      <span className="text-[#2d3548]">|</span>
-                      <span>{conv.messages.length} mensajes</span>
+              return (
+                <button
+                  key={conv.id}
+                  onClick={() => handleSelectConversation(conv.id)}
+                  className={`group w-full text-left p-4 border-b border-[#2d3548]/50 transition-colors ${
+                    activeConvId === conv.id
+                      ? "bg-[#1c2333] border-l-2 border-l-blue-500"
+                      : "hover:bg-[#1c2333]/50"
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10">
+                      <MessageSquare className="h-4 w-4 text-blue-400" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-[#e2e8f0]">
+                        {title}
+                      </p>
+                      <p className="mt-0.5 truncate text-xs text-[#94a3b8]">
+                        {preview}
+                      </p>
+                      <div className="mt-1.5 flex items-center gap-2 text-xs text-[#94a3b8]">
+                        <Clock className="h-3 w-3" />
+                        <span>{formatTime(conv.updatedAt)}</span>
+                        <span className="text-[#2d3548]">|</span>
+                        <span>{conv.messageCount} mensajes</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={(e) => handleDeleteConversation(conv.id, e)}
+                        className="hidden group-hover:flex h-6 w-6 items-center justify-center rounded text-[#94a3b8]/50 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                        title="Eliminar conversacion"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                      <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-[#94a3b8]/50" />
                     </div>
                   </div>
-                  <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-[#94a3b8]/50" />
-                </div>
-              </button>
-            );
-          })}
+                </button>
+              );
+            })
+          )}
         </div>
       </div>
 
@@ -507,8 +569,30 @@ export default function ChatPage() {
 
         {/* Messages area */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
-          {/* Welcome message when no messages */}
-          {activeConv.messages.length === 0 && !isTyping && (
+          {/* Loading state for messages */}
+          {isLoadingMessages && (
+            <div className="flex items-center justify-center h-full">
+              <div className="flex flex-col items-center gap-3">
+                <div className="h-8 w-8 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
+                <p className="text-sm text-[#94a3b8]">
+                  Cargando mensajes...
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Error display */}
+          {error && (
+            <div className="flex justify-center">
+              <div className="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                {error}
+              </div>
+            </div>
+          )}
+
+          {/* Welcome message when no messages and no conversation selected */}
+          {messages.length === 0 && !isTyping && !isLoadingMessages && (
             <div className="flex flex-col items-center justify-center h-full text-center space-y-4">
               <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-cyan-500">
                 <Bot className="h-8 w-8 text-white" />
@@ -531,10 +615,7 @@ export default function ChatPage() {
                 ].map((suggestion) => (
                   <button
                     key={suggestion}
-                    onClick={() => {
-                      setInputValue(suggestion);
-                      textareaRef.current?.focus();
-                    }}
+                    onClick={() => handleSend(suggestion)}
                     className="rounded-xl border border-[#2d3548] bg-[#1c2333] px-3 py-2 text-xs text-[#94a3b8] hover:bg-[#2d3548] hover:text-[#e2e8f0] transition-colors"
                   >
                     {suggestion}
@@ -545,7 +626,7 @@ export default function ChatPage() {
           )}
 
           {/* Rendered messages */}
-          {activeConv.messages.map((message) => (
+          {messages.map((message) => (
             <div
               key={message.id}
               className={`flex ${
@@ -590,31 +671,32 @@ export default function ChatPage() {
                   {message.role === "assistant" && (
                     <div className="mt-2 space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
-                        {message.confidence && (
-                          <span
-                            className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${message.confidence.color}`}
-                          >
-                            <CheckCircle2 className="h-3 w-3" />
-                            {message.confidence.level}
-                          </span>
-                        )}
+                        {message.confidenceLabel &&
+                          CONFIDENCE_MAP[message.confidenceLabel] && (
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${CONFIDENCE_MAP[message.confidenceLabel].color}`}
+                            >
+                              <CheckCircle2 className="h-3 w-3" />
+                              {CONFIDENCE_MAP[message.confidenceLabel].level}
+                            </span>
+                          )}
                         {message.citations?.map((citation, idx) => (
                           <span
                             key={idx}
-                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${citation.color}`}
+                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${getCitationColor(idx)}`}
                           >
-                            {citation.label}
+                            {formatCitationLabel(citation)}
                           </span>
                         ))}
                       </div>
-                      {message.disclaimer && (
-                        <div className="flex items-start gap-1.5 mt-1">
-                          <AlertCircle className="h-3 w-3 shrink-0 mt-0.5 text-[#94a3b8]/60" />
-                          <p className="text-xs text-[#94a3b8]/60 italic">
-                            {message.disclaimer}
-                          </p>
-                        </div>
-                      )}
+                      <div className="flex items-start gap-1.5 mt-1">
+                        <AlertCircle className="h-3 w-3 shrink-0 mt-0.5 text-[#94a3b8]/60" />
+                        <p className="text-xs text-[#94a3b8]/60 italic">
+                          Esta respuesta es orientativa y no reemplaza asesoria
+                          profesional. Consulta con tu aseguradora para montos
+                          definitivos.
+                        </p>
+                      </div>
                     </div>
                   )}
 
@@ -624,7 +706,7 @@ export default function ChatPage() {
                       message.role === "user" ? "text-right" : "text-left"
                     }`}
                   >
-                    {message.timestamp}
+                    {formatTime(message.createdAt)}
                   </p>
                 </div>
               </div>
@@ -652,7 +734,7 @@ export default function ChatPage() {
               />
             </div>
             <button
-              onClick={handleSend}
+              onClick={() => handleSend()}
               disabled={!inputValue.trim() || isTyping}
               className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white transition-all ${
                 inputValue.trim() && !isTyping

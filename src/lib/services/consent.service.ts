@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import type { ConsentRecord, ConsentType } from "@prisma/client";
+import type { ConsentRecord } from "@prisma/client";
+import type { ConsentType } from "@/types/prisma-enums";
 
 export const ConsentService = {
   /**

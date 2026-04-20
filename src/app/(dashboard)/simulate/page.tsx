@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Calculator,
   Shield,
@@ -17,6 +17,7 @@ import {
   ArrowDown,
   Sparkles,
   Clock,
+  Globe,
 } from "lucide-react";
 import {
   detectGESPathology,
@@ -67,55 +68,7 @@ interface UserPolicy {
   subCoverages?: { name: string; limit: number }[];
 }
 
-const userPolicies: UserPolicy[] = [
-  {
-    id: "p1",
-    name: "Seguro Complementario de Salud",
-    company: "MetLife",
-    category: "SALUD",
-    status: "ACTIVE",
-    coverageLimit: 5000000,
-    deductible: 200000,
-    copayPercent: 20,
-    subCoverages: [
-      { name: "Consultas medicas", limit: 500000 },
-      { name: "Hospitalizacion", limit: 3000000 },
-      { name: "Cirugia", limit: 5000000 },
-      { name: "Medicamentos", limit: 200000 },
-      { name: "Urgencias", limit: 1000000 },
-    ],
-  },
-  {
-    id: "p2",
-    name: "Seguro de Vida",
-    company: "Consorcio Nacional",
-    category: "VIDA",
-    status: "ACTIVE",
-    coverageLimit: 50000000,
-    deductible: 0,
-    copayPercent: 0,
-  },
-  {
-    id: "p3",
-    name: "Seguro Automotriz Todo Riesgo",
-    company: "BCI Seguros",
-    category: "VEHICULO",
-    status: "ACTIVE",
-    coverageLimit: 15000000,
-    deductible: 110000, // ~3 UF
-    copayPercent: 10,
-  },
-  {
-    id: "p4",
-    name: "SOAP Obligatorio",
-    company: "Liberty Seguros",
-    category: "VEHICULO",
-    status: "ACTIVE",
-    coverageLimit: 4000000, // covers medical expenses from auto accidents
-    deductible: 0,
-    copayPercent: 0,
-  },
-];
+// userPolicies is now loaded from the API — see useState in the component below
 
 // ─── Health system config ────────────────────────────────────────────────────
 
@@ -161,6 +114,7 @@ function simulate(
   isPublicNetwork: boolean,
   description: string = "",
   annualCopayAccumulated: number = 0,
+  userPolicies: UserPolicy[] = [],
 ): SimResult {
   const event = eventTypes.find((e) => e.value === eventType);
   if (!event) {
@@ -175,20 +129,20 @@ function simulate(
   if (category === "SALUD") {
     // Try to detect GES pathology from description
     const gesMatch = detectGESPathology(description);
-    return simulateHealth(eventType, amount, healthSystem, isPublicNetwork, gesMatch, annualCopayAccumulated);
+    return simulateHealth(eventType, amount, healthSystem, isPublicNetwork, gesMatch, annualCopayAccumulated, userPolicies);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  VEHICLE EVENTS
   // ═══════════════════════════════════════════════════════════════════════════
   if (category === "VEHICULO") {
-    return simulateVehicle(eventType, amount);
+    return simulateVehicle(eventType, amount, userPolicies);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
   //  OTHER EVENTS (HOGAR, VIAJE, etc.)
   // ═══════════════════════════════════════════════════════════════════════════
-  return simulateGeneric(amount, category);
+  return simulateGeneric(amount, category, userPolicies);
 }
 
 function simulateHealth(
@@ -198,6 +152,7 @@ function simulateHealth(
   isPublicNetwork: boolean,
   gesPathology: GESPathology | null = null,
   annualCopayAccumulated: number = 0,
+  userPolicies: UserPolicy[] = [],
 ): SimResult {
   const steps: WaterfallStep[] = [];
   const warnings: string[] = [];
@@ -446,7 +401,7 @@ function simulateHealth(
   return buildResult(amount, steps, warnings, explanation);
 }
 
-function simulateVehicle(eventType: string, amount: number): SimResult {
+function simulateVehicle(eventType: string, amount: number, userPolicies: UserPolicy[] = []): SimResult {
   const steps: WaterfallStep[] = [];
   const warnings: string[] = [];
 
@@ -521,7 +476,7 @@ function simulateVehicle(eventType: string, amount: number): SimResult {
   );
 }
 
-function simulateGeneric(amount: number, category: string): SimResult {
+function simulateGeneric(amount: number, category: string, userPolicies: UserPolicy[] = []): SimResult {
   const policy = userPolicies.find(
     (p) => p.category === category && p.status === "ACTIVE"
   );
@@ -676,7 +631,82 @@ const nlpExamples = [
   "Me robaron en la casa y perdimos electrodomesticos por 2 millones",
 ];
 
+// ─── Map API policy to local UserPolicy interface ───────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapApiPolicyToUserPolicy(apiPolicy: any): UserPolicy {
+  const coverageLimit =
+    apiPolicy.totalInsuredAmount ??
+    (apiPolicy.coverages && apiPolicy.coverages.length > 0
+      ? apiPolicy.coverages.reduce(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (max: number, c: any) => Math.max(max, c.coveredAmount ?? 0),
+          0
+        )
+      : 0);
+
+  // Try to extract deductible from the deductibles relation or fall back to 0
+  const deductible =
+    apiPolicy.deductibles && apiPolicy.deductibles.length > 0
+      ? apiPolicy.deductibles[0].amount ?? 0
+      : 0;
+
+  // Map coverages to subCoverages for the simulate engine
+  const subCoverages =
+    apiPolicy.coverages && apiPolicy.coverages.length > 0
+      ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        apiPolicy.coverages.map((c: any) => ({
+          name: c.name,
+          limit: c.coveredAmount ?? 0,
+        }))
+      : undefined;
+
+  return {
+    id: apiPolicy.id,
+    name: apiPolicy.policyNumber
+      ? `Poliza ${apiPolicy.policyNumber}`
+      : apiPolicy.category
+        ? `Seguro ${apiPolicy.category.charAt(0) + apiPolicy.category.slice(1).toLowerCase()}`
+        : "Poliza",
+    company: apiPolicy.insuranceCompany ?? "Sin compania",
+    category: apiPolicy.category ?? "OTRO",
+    status: apiPolicy.status ?? "ACTIVE",
+    coverageLimit,
+    deductible,
+    copayPercent: 20, // Default copay; real value would come from policy details
+    subCoverages,
+  };
+}
+
 export default function SimulatePage() {
+  // ─── User policies from API ──────────────────────────────────────────────
+  const [userPolicies, setUserPolicies] = useState<UserPolicy[]>([]);
+  const [policiesLoading, setPoliciesLoading] = useState(true);
+  const [policiesError, setPoliciesError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function fetchPolicies() {
+      setPoliciesLoading(true);
+      setPoliciesError(null);
+      try {
+        const res = await fetch("/api/policies?status=ACTIVE&pageSize=100");
+        const json = await res.json();
+        if (!res.ok || !json.success || !json.data) {
+          throw new Error(json.error ?? "Error al cargar polizas");
+        }
+        const mapped = json.data.items.map(mapApiPolicyToUserPolicy);
+        setUserPolicies(mapped);
+      } catch (err) {
+        setPoliciesError(
+          err instanceof Error ? err.message : "Error desconocido"
+        );
+        setUserPolicies([]);
+      } finally {
+        setPoliciesLoading(false);
+      }
+    }
+    fetchPolicies();
+  }, []);
+
   // NLP state
   const [nlpInput, setNlpInput] = useState("");
   const [nlpParsed, setNlpParsed] = useState<NLPResult | null>(null);
@@ -701,7 +731,7 @@ export default function SimulatePage() {
       // Auto-simulate
       setTimeout(() => {
         const annualCopay = parseInt(annualCopayStr.replace(/\./g, ""), 10) || 0;
-        const r = simulate(parsed.eventType, parsed.amount, healthSystem, isPublicNetwork, parsed.description, annualCopay);
+        const r = simulate(parsed.eventType, parsed.amount, healthSystem, isPublicNetwork, parsed.description, annualCopay, userPolicies);
         setResult(r);
       }, 100);
     }
@@ -738,7 +768,7 @@ export default function SimulatePage() {
     setResult(null);
     const annualCopay = parseInt(annualCopayStr.replace(/\./g, ""), 10) || 0;
     setTimeout(() => {
-      const r = simulate(eventType, amount, healthSystem, isPublicNetwork, description, annualCopay);
+      const r = simulate(eventType, amount, healthSystem, isPublicNetwork, description, annualCopay, userPolicies);
       setResult(r);
       setIsLoading(false);
     }, 1500);
@@ -995,19 +1025,125 @@ export default function SimulatePage() {
           {/* Policies used */}
           <div className="rounded-2xl border border-[#2d3548] bg-[#1c2333] p-5">
             <h3 className="text-sm font-semibold text-[#e2e8f0] mb-3">Tus polizas consideradas</h3>
-            <div className="space-y-2">
-              {userPolicies.map((p) => (
-                <div key={p.id} className="flex items-center gap-2 text-xs text-[#94a3b8]">
-                  <div className={`h-2 w-2 rounded-full ${p.status === "ACTIVE" ? "bg-emerald-400" : "bg-[#64748b]"}`} />
-                  <span className="text-[#e2e8f0]">{p.company}</span>
-                  <span>- {p.name}</span>
-                </div>
-              ))}
-            </div>
+            {policiesLoading && (
+              <div className="flex items-center gap-2 py-4">
+                <Loader2 className="h-4 w-4 animate-spin text-blue-400" />
+                <span className="text-xs text-[#94a3b8]">Cargando tus polizas...</span>
+              </div>
+            )}
+            {policiesError && !policiesLoading && (
+              <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3">
+                <p className="text-xs text-red-300">{policiesError}</p>
+              </div>
+            )}
+            {!policiesLoading && !policiesError && userPolicies.length === 0 && (
+              <div className="py-4 text-center">
+                <p className="text-xs text-[#94a3b8]">No tienes polizas cargadas.</p>
+                <p className="text-xs text-[#64748b] mt-1">
+                  Sube polizas en &quot;Mis Seguros&quot; para poder simular escenarios.
+                </p>
+              </div>
+            )}
+            {!policiesLoading && userPolicies.length > 0 && (
+              <div className="space-y-2">
+                {userPolicies.map((p) => (
+                  <div key={p.id} className="flex items-center gap-2 text-xs text-[#94a3b8]">
+                    <div className={`h-2 w-2 rounded-full ${p.status === "ACTIVE" ? "bg-emerald-400" : "bg-[#64748b]"}`} />
+                    <span className="text-[#e2e8f0]">{p.company}</span>
+                    <span>- {p.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
             <p className="mt-3 text-xs text-[#64748b]">
               Agrega mas polizas en &quot;Mis Seguros&quot; para una simulacion mas completa.
             </p>
           </div>
+
+          {/* Server-side simulation button */}
+          {result && (
+            <div className="rounded-2xl border border-[#2d3548] bg-[#1c2333] p-5">
+              <h3 className="text-sm font-semibold text-[#e2e8f0] mb-2 flex items-center gap-2">
+                <Globe className="h-4 w-4 text-purple-400" />
+                Analisis avanzado (servidor)
+              </h3>
+              <p className="text-xs text-[#94a3b8] mb-3">
+                Ejecuta una simulacion mas detallada en el servidor, considerando todas tus polizas y coberturas reales.
+              </p>
+              <button
+                onClick={async () => {
+                  setIsLoading(true);
+                  try {
+                    const amount = parseAmount(amountStr);
+                    const res = await fetch("/api/simulate", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        eventType,
+                        eventDescription: description,
+                        claimAmount: amount,
+                        currency: "CLP",
+                      }),
+                    });
+                    const json = await res.json();
+                    if (json.success && json.data?.summary) {
+                      const s = json.data.summary;
+                      // Build a SimResult from the server response to display
+                      // in the existing UI
+                      const serverResult: SimResult = {
+                        eventAmount: amount,
+                        steps: (json.data.results || []).map(
+                          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                          (r: any, i: number) => ({
+                            label: r.policyName || `Poliza ${i + 1}`,
+                            entity: `${r.insuranceCompany || ""} - ${r.policyName || ""}`,
+                            amountIn: r.claimAmount ?? amount,
+                            covers: r.coveredAmount ?? 0,
+                            remainder: r.outOfPocket ?? 0,
+                            deductible: r.deductible ?? 0,
+                            copayPercent: r.copayPercent ?? 0,
+                            copayAmount: r.copayAmount ?? 0,
+                            color: i === 0 ? "#3b82f6" : i === 1 ? "#06b6d4" : "#10b981",
+                          })
+                        ),
+                        totalCovered: s.totalCovered ?? 0,
+                        totalOutOfPocket: s.totalOutOfPocket ?? amount,
+                        coveragePercent: amount > 0 ? Math.round(((s.totalCovered ?? 0) / amount) * 100) : 0,
+                        confidence: "Alta",
+                        warnings: [
+                          "Resultado generado por el servidor con tus polizas reales.",
+                          "No constituye compromiso de cobertura por parte de ninguna aseguradora.",
+                        ],
+                        explanation: s.explanation ?? "Analisis detallado del servidor.",
+                      };
+                      // Add the out-of-pocket step
+                      serverResult.steps.push({
+                        label: "Gasto de bolsillo",
+                        entity: "Tu",
+                        amountIn: serverResult.totalOutOfPocket,
+                        covers: 0,
+                        remainder: serverResult.totalOutOfPocket,
+                        deductible: 0,
+                        copayPercent: 100,
+                        copayAmount: serverResult.totalOutOfPocket,
+                        color: "#f59e0b",
+                      });
+                      setResult(serverResult);
+                    }
+                  } catch {
+                    // Keep existing client-side result on error
+                  } finally {
+                    setIsLoading(false);
+                  }
+                }}
+                disabled={isLoading}
+                className="w-full flex items-center justify-center gap-2 rounded-xl border border-purple-500/30 bg-purple-500/10 py-2.5 text-sm font-medium text-purple-300 transition-all hover:bg-purple-500/20 hover:border-purple-500/50 disabled:opacity-50"
+              >
+                {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe className="h-4 w-4" />}
+                Simular en servidor
+              </button>
+            </div>
+          )}
         </div>
 
         {/* ─── RIGHT: RESULTS (3/5) ─── */}

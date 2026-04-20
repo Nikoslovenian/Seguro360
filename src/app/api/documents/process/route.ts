@@ -4,6 +4,7 @@ import { processDocumentSchema } from "@/lib/validations/document";
 import { DocumentService } from "@/lib/services/document.service";
 import { enqueueDocumentProcessing } from "@/lib/queue";
 import { logAudit } from "@/server/middleware/audit";
+import { safeParseJson } from "@/lib/utils/parse-json";
 import type { ApiResponse } from "@/types/api";
 
 export async function POST(request: NextRequest) {
@@ -16,14 +17,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = await request.json();
+    const [body, parseError] = await safeParseJson(request);
+    if (parseError) return parseError;
+
     const parsed = processDocumentSchema.safeParse(body);
 
     if (!parsed.success) {
       return NextResponse.json<ApiResponse>(
         {
           success: false,
-          error: parsed.error.errors.map((e) => e.message).join(", "),
+          error: parsed.error.issues.map((e) => e.message).join(", "),
         },
         { status: 400 },
       );

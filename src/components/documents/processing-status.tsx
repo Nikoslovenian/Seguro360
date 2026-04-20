@@ -1,7 +1,7 @@
 "use client";
 
-import type { ProcessingStatus as ProcessingStatusType } from "@prisma/client";
-import { cn } from "@/lib/utils/cn";
+import type { ProcessingStatus as ProcessingStatusType } from "@/types/prisma-enums";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
 

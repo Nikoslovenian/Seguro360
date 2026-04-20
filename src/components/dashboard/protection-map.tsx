@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { cn } from "@/lib/utils/cn";
+import { cn } from "@/lib/utils";
 import { ProtectionCard } from "@/components/dashboard/protection-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ProtectionScore } from "@/types/insurance";

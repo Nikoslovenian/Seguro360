@@ -24,8 +24,7 @@ export async function logAudit(params: LogAuditParams): Promise<void> {
 
   if (request) {
     // Next.js forwards the client IP in x-forwarded-for or x-real-ip
-    const headers =
-      request instanceof Request ? request.headers : request.headers;
+    const headers = request.headers;
     ipAddress =
       headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
       headers.get("x-real-ip") ??
@@ -40,7 +39,7 @@ export async function logAudit(params: LogAuditParams): Promise<void> {
         action,
         resource,
         resourceId,
-        details: details ?? undefined,
+        details: details ? JSON.stringify(details) : undefined,
         ipAddress,
         userAgent,
       },

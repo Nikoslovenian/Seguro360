@@ -1,10 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import {
-  generateSmartAlerts,
-  type SmartAlert,
-} from "@/lib/scoring/smart-alerts";
+import type { Alert } from "@/types/insurance";
 import {
   Bell,
   Clock,
@@ -22,6 +19,8 @@ import {
   X,
   Filter,
   ChevronDown,
+  Layers,
+  Search,
 } from "lucide-react";
 
 // ─── Icon Mapping ────────────────────────────────────────────────────────────
@@ -39,7 +38,131 @@ const iconComponents: Record<string, React.ReactNode> = {
   AlertOctagon: <AlertOctagon className="w-5 h-5" />,
   ShieldAlert: <ShieldAlert className="w-5 h-5" />,
   GraduationCap: <GraduationCap className="w-5 h-5" />,
+  Layers: <Layers className="w-5 h-5" />,
+  Search: <Search className="w-5 h-5" />,
 };
+
+// ─── Map API alert types to display ──────────────────────────────────────────
+
+function mapApiTypeToIcon(type: string): string {
+  switch (type) {
+    case "expiring":
+      return "Clock";
+    case "gap":
+      return "ShieldAlert";
+    case "overlap":
+      return "Layers";
+    case "low_confidence":
+      return "Search";
+    case "exclusion":
+      return "AlertOctagon";
+    default:
+      return "Bell";
+  }
+}
+
+function mapApiSeverity(severity: string): string {
+  switch (severity) {
+    case "high":
+      return "critica";
+    case "medium":
+      return "alta";
+    case "low":
+      return "media";
+    default:
+      return "baja";
+  }
+}
+
+function mapApiType(type: string): string {
+  switch (type) {
+    case "expiring":
+      return "vencimiento";
+    case "gap":
+      return "brecha";
+    case "overlap":
+      return "cobertura";
+    case "low_confidence":
+      return "legal";
+    case "exclusion":
+      return "cobertura";
+    default:
+      return type;
+  }
+}
+
+// Internal alert representation (superset of API Alert for UI rendering)
+interface DisplayAlert {
+  id: string;
+  type: string;
+  severity: string;
+  title: string;
+  description: string;
+  recommendation: string;
+  category?: string;
+  relatedPolicyId?: string;
+  dueDate?: string;
+  icon: string;
+  actionLabel?: string;
+  actionHref?: string;
+  isNew: boolean;
+  createdAt: string;
+}
+
+function mapApiAlertToDisplay(alert: Alert): DisplayAlert {
+  const mappedSeverity = mapApiSeverity(alert.severity);
+  const mappedType = mapApiType(alert.type);
+  const icon = mapApiTypeToIcon(alert.type);
+
+  // Generate contextual recommendation based on type
+  let recommendation = "";
+  switch (alert.type) {
+    case "expiring":
+      recommendation = "Gestiona la renovacion a la brevedad para evitar periodos sin cobertura.";
+      break;
+    case "gap":
+      recommendation = "Evalua contratar una poliza para cubrir esta brecha de proteccion.";
+      break;
+    case "overlap":
+      recommendation = "Revisa si existe duplicidad de cobertura y si puedes optimizar costos.";
+      break;
+    case "low_confidence":
+      recommendation = "Revisa manualmente el documento para verificar la informacion extraida.";
+      break;
+    default:
+      recommendation = "Revisa esta alerta y toma las medidas necesarias.";
+  }
+
+  // Determine action based on type
+  let actionLabel: string | undefined;
+  let actionHref: string | undefined;
+  if (alert.type === "expiring") {
+    actionLabel = "Ver poliza";
+    actionHref = "/documents";
+  } else if (alert.type === "gap") {
+    actionLabel = "Ver opciones";
+    actionHref = "/library";
+  } else if (alert.type === "low_confidence" && alert.relatedPolicyId) {
+    actionLabel = "Revisar";
+    actionHref = "/documents";
+  }
+
+  return {
+    id: alert.id,
+    type: mappedType,
+    severity: mappedSeverity,
+    title: alert.title,
+    description: alert.description,
+    recommendation,
+    category: alert.category,
+    relatedPolicyId: alert.relatedPolicyId,
+    icon,
+    actionLabel,
+    actionHref,
+    isNew: alert.type === "expiring" && alert.severity === "high",
+    createdAt: new Date().toISOString().split("T")[0],
+  };
+}
 
 // ─── Severity Helpers ────────────────────────────────────────────────────────
 
@@ -133,81 +256,111 @@ function getTypeBadge(type: string): { label: string; className: string } {
   }
 }
 
+// ─── Loading Skeleton ────────────────────────────────────────────────────────
+
+function AlertsSkeleton() {
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center gap-4">
+        <div className="p-3 rounded-xl bg-amber-500/20 border border-amber-500/30">
+          <Bell className="w-7 h-7 text-amber-400" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold text-white">Centro de Alertas</h1>
+          <p className="text-sm text-slate-400">Cargando alertas...</p>
+        </div>
+      </div>
+
+      {/* Stats skeleton */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {[1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className="bg-[#1c2333] border border-[#2d3548] rounded-xl p-4 flex items-center gap-4 animate-pulse"
+          >
+            <div className="w-10 h-10 rounded-lg bg-slate-700" />
+            <div>
+              <div className="w-8 h-6 bg-slate-700 rounded mb-1" />
+              <div className="w-20 h-3 bg-slate-800 rounded" />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Alert skeletons */}
+      <div className="space-y-3">
+        {[1, 2, 3, 4].map((i) => (
+          <div
+            key={i}
+            className="bg-[#1c2333] border border-[#2d3548] rounded-xl border-l-4 border-l-slate-600 animate-pulse"
+          >
+            <div className="p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-8 h-8 rounded-lg bg-slate-700" />
+                <div className="w-16 h-4 bg-slate-700 rounded" />
+                <div className="w-12 h-4 bg-slate-700 rounded" />
+              </div>
+              <div className="w-3/4 h-5 bg-slate-700 rounded mb-2" />
+              <div className="w-full h-4 bg-slate-800 rounded mb-1" />
+              <div className="w-2/3 h-4 bg-slate-800 rounded" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function AlertsPage() {
-  const [alerts, setAlerts] = useState<SmartAlert[]>([]);
+  const [alerts, setAlerts] = useState<DisplayAlert[]>([]);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const [dismissing, setDismissing] = useState<Set<string>>(new Set());
   const [severityFilter, setSeverityFilter] = useState<string>("todas");
   const [typeFilter, setTypeFilter] = useState<string>("todos");
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
+  // Fetch real alerts from API
   useEffect(() => {
-    const mockAlerts = generateSmartAlerts(
-      {
-        age: 35,
-        childrenAges: [8, 4],
-        hasPartner: true,
-        partnerAge: 33,
-        pets: [{ type: "Perro", age: 9, name: "Rocky" }],
-      },
-      [
-        {
-          id: "p1",
-          name: "Seguro Complementario Salud",
-          company: "MetLife",
-          category: "SALUD",
-          status: "ACTIVE",
-          endDate: "2026-04-15",
-          premium: 45000,
-          previousPremium: 38000,
-          coverageLimit: 5000000,
-          hasComplementario: true,
-          hasVida: false,
-          hasHogar: false,
-          hasInvalidez: false,
-          hasCatastrofico: false,
-          hasDesgravamen: false,
-        },
-        {
-          id: "p2",
-          name: "Seguro de Vida",
-          company: "Consorcio",
-          category: "VIDA",
-          status: "ACTIVE",
-          endDate: "2027-01-01",
-          premium: 25000,
-          coverageLimit: 50000000,
-          hasComplementario: false,
-          hasVida: true,
-          hasHogar: false,
-          hasInvalidez: false,
-          hasCatastrofico: false,
-          hasDesgravamen: false,
-        },
-        {
-          id: "p3",
-          name: "Seguro Automotriz",
-          company: "BCI",
-          category: "VEHICULO",
-          status: "ACTIVE",
-          endDate: "2026-04-20",
-          premium: 35000,
-          previousPremium: 30000,
-          coverageLimit: 15000000,
-          hasComplementario: false,
-          hasVida: false,
-          hasHogar: false,
-          hasInvalidez: false,
-          hasCatastrofico: false,
-          hasDesgravamen: false,
-        },
-      ] as any,
-    );
-    setAlerts(mockAlerts);
-    setTimeout(() => setLoaded(true), 100);
+    let cancelled = false;
+
+    async function fetchAlerts() {
+      try {
+        const res = await fetch("/api/dashboard/alerts");
+        if (!res.ok) throw new Error("Error al cargar alertas");
+        const json = await res.json();
+
+        if (cancelled) return;
+
+        if (!json.success) {
+          setError(json.error || "Error desconocido");
+          setLoading(false);
+          return;
+        }
+
+        const apiAlerts: Alert[] = json.data ?? [];
+        const displayAlerts = apiAlerts.map(mapApiAlertToDisplay);
+        setAlerts(displayAlerts);
+        setLoading(false);
+        setTimeout(() => setLoaded(true), 100);
+      } catch (err) {
+        console.error("Error fetching alerts:", err);
+        if (!cancelled) {
+          setError("No se pudieron cargar las alertas. Intenta nuevamente.");
+          setLoading(false);
+        }
+      }
+    }
+
+    fetchAlerts();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // ── Dismiss logic ──
@@ -222,6 +375,35 @@ export default function AlertsPage() {
       });
     }, 300);
   }, []);
+
+  // ── Loading state ──
+  if (loading) {
+    return <AlertsSkeleton />;
+  }
+
+  // ── Error state ──
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-4">
+          <div className="p-3 rounded-xl bg-amber-500/20 border border-amber-500/30">
+            <Bell className="w-7 h-7 text-amber-400" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-white">Centro de Alertas</h1>
+            <p className="text-sm text-slate-400">
+              Alertas inteligentes basadas en tu perfil y polizas
+            </p>
+          </div>
+        </div>
+        <div className="bg-[#1c2333] border border-[#2d3548] rounded-xl p-12 text-center">
+          <AlertOctagon className="w-12 h-12 text-red-400 mx-auto mb-4" />
+          <p className="text-white text-lg mb-2">Error al cargar alertas</p>
+          <p className="text-slate-400 text-sm">{error}</p>
+        </div>
+      </div>
+    );
+  }
 
   // ── Filtered alerts ──
   const visibleAlerts = alerts.filter((a) => {
@@ -386,11 +568,23 @@ export default function AlertsPage() {
       <div className="space-y-3">
         {visibleAlerts.length === 0 && (
           <div className="bg-[#1c2333] border border-[#2d3548] rounded-xl p-12 text-center">
-            <Bell className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-            <p className="text-slate-400 text-lg">No hay alertas con estos filtros</p>
-            <p className="text-slate-500 text-sm mt-1">
-              Ajusta los filtros para ver mas alertas
-            </p>
+            {alerts.length === 0 ? (
+              <>
+                <Shield className="w-12 h-12 text-green-400 mx-auto mb-4" />
+                <p className="text-green-400 text-lg font-semibold">Todo en orden</p>
+                <p className="text-slate-400 text-sm mt-1">
+                  No hay alertas activas para tus polizas. Sube mas documentos para un analisis completo.
+                </p>
+              </>
+            ) : (
+              <>
+                <Bell className="w-12 h-12 text-slate-600 mx-auto mb-4" />
+                <p className="text-slate-400 text-lg">No hay alertas con estos filtros</p>
+                <p className="text-slate-500 text-sm mt-1">
+                  Ajusta los filtros para ver mas alertas
+                </p>
+              </>
+            )}
           </div>
         )}
 

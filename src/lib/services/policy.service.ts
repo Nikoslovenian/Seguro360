@@ -1,10 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import type {
-  InsuranceCategory,
   InsurancePolicy,
-  PolicyStatus,
   Prisma,
 } from "@prisma/client";
+import type { InsuranceCategory, PolicyStatus } from "@/types/prisma-enums";
 import type { PaginatedResponse } from "@/types/api";
 import type { CreatePolicyInput, UpdatePolicyInput } from "@/lib/validations/policy";
 
@@ -92,14 +91,13 @@ export const PolicyService = {
 
     if (filters?.search) {
       where.OR = [
-        { policyNumber: { contains: filters.search, mode: "insensitive" } },
+        { policyNumber: { contains: filters.search } },
         {
           insuranceCompany: {
             contains: filters.search,
-            mode: "insensitive",
           },
         },
-        { insuredName: { contains: filters.search, mode: "insensitive" } },
+        { insuredName: { contains: filters.search } },
       ];
     }
 

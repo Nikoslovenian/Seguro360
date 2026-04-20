@@ -669,6 +669,8 @@ export default function OnboardingPage() {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [direction, setDirection] = useState<"left" | "right">("right");
+  const [checkingOnboarding, setCheckingOnboarding] = useState(true);
+  const [isCompletingOnboarding, setIsCompletingOnboarding] = useState(false);
 
   // Step 2 state
   const [age, setAge] = useState(35);
@@ -805,6 +807,37 @@ export default function OnboardingPage() {
     };
   }, [step, finalScore, gaps.length, covered.length]);
 
+  // Check if onboarding is already complete on mount
+  useEffect(() => {
+    let cancelled = false;
+    async function checkOnboarding() {
+      try {
+        const res = await fetch("/api/onboarding");
+        const json = await res.json();
+        if (!cancelled && json.success && json.data?.onboardingComplete) {
+          router.replace("/dashboard");
+          return;
+        }
+      } catch {
+        // If check fails, allow user to proceed with onboarding
+      }
+      if (!cancelled) setCheckingOnboarding(false);
+    }
+    checkOnboarding();
+    return () => { cancelled = true; };
+  }, [router]);
+
+  // Complete onboarding and navigate to dashboard
+  const completeOnboarding = useCallback(async () => {
+    setIsCompletingOnboarding(true);
+    try {
+      await fetch("/api/onboarding", { method: "POST" });
+    } catch {
+      // Even if the API call fails, redirect to dashboard
+    }
+    router.push("/dashboard");
+  }, [router]);
+
   const updateFamily = (partial: Partial<FamilyState>) => {
     setFamily((prev) => {
       const next = { ...prev, ...partial };
@@ -837,6 +870,17 @@ export default function OnboardingPage() {
   ];
 
   const mascotaOptions = ["Perro", "Gato", "Otro"];
+
+  if (checkingOnboarding) {
+    return (
+      <div className="min-h-[calc(100vh-80px)] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 rounded-full border-2 border-cyan-500 border-t-transparent animate-spin" />
+          <p className="text-slate-400 text-sm">Cargando...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-[calc(100vh-80px)] flex flex-col items-center">
@@ -1727,11 +1771,21 @@ export default function OnboardingPage() {
                 {/* Final CTA */}
                 <div className="text-center mt-8 pb-4">
                   <button
-                    onClick={() => router.push("/dashboard")}
-                    className="group relative inline-flex items-center gap-3 px-10 py-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold text-lg shadow-xl shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300"
+                    onClick={completeOnboarding}
+                    disabled={isCompletingOnboarding}
+                    className="group relative inline-flex items-center gap-3 px-10 py-4 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold text-lg shadow-xl shadow-cyan-500/25 hover:shadow-cyan-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:scale-100"
                   >
-                    <span>Ir a mi dashboard</span>
-                    <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                    {isCompletingOnboarding ? (
+                      <>
+                        <div className="w-5 h-5 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                        <span>Guardando...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Ir a mi dashboard</span>
+                        <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                      </>
+                    )}
                     <div className="absolute inset-0 rounded-xl overflow-hidden">
                       <div className="absolute inset-0 -translate-x-full group-hover:translate-x-full transition-transform duration-1000 bg-gradient-to-r from-transparent via-white/10 to-transparent" />
                     </div>

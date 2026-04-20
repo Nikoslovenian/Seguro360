@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { PolicyService } from "@/lib/services/policy.service";
 import { updatePolicySchema } from "@/lib/validations/policy";
 import { logAudit } from "@/server/middleware/audit";
+import { safeParseJson } from "@/lib/utils/parse-json";
 import type { ApiResponse } from "@/types/api";
 
 interface RouteContext {
@@ -56,14 +57,16 @@ export async function PATCH(
     }
 
     const { id } = await context.params;
-    const body = await request.json();
+    const [body, parseError] = await safeParseJson(request);
+    if (parseError) return parseError;
+
     const parsed = updatePolicySchema.safeParse(body);
 
     if (!parsed.success) {
       return NextResponse.json<ApiResponse>(
         {
           success: false,
-          error: parsed.error.errors.map((e) => e.message).join(", "),
+          error: parsed.error.issues.map((e) => e.message).join(", "),
         },
         { status: 400 },
       );

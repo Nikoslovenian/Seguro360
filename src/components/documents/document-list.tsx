@@ -2,12 +2,13 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { cn } from "@/lib/utils/cn";
+import { cn } from "@/lib/utils";
 import { ProcessingStatusBadge } from "@/components/documents/processing-status";
 import { EmptyState } from "@/components/shared/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FileText } from "lucide-react";
-import type { PolicyDocument, ProcessingStatus } from "@prisma/client";
+import type { PolicyDocument } from "@prisma/client";
+import type { ProcessingStatus } from "@/types/prisma-enums";
 import type { ApiResponse, PaginatedResponse } from "@/types/api";
 
 interface DocumentListProps {

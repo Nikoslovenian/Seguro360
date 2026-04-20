@@ -10,7 +10,7 @@ export default function ForgotPasswordPage() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
@@ -20,11 +20,23 @@ export default function ForgotPasswordPage() {
     }
 
     setIsLoading(true);
-    // Simulate sending email (in production, call API)
-    setTimeout(() => {
-      setSent(true);
+    try {
+      const res = await fetch("/api/auth/forgot-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok && data.error) {
+        setError(data.error);
+      } else {
+        setSent(true);
+      }
+    } catch {
+      setError("Error de conexion. Intenta nuevamente.");
+    } finally {
       setIsLoading(false);
-    }, 1500);
+    }
   };
 
   if (sent) {

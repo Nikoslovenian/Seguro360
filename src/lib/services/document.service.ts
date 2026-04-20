@@ -1,9 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import type {
   PolicyDocument,
-  ProcessingStatus,
   Prisma,
 } from "@prisma/client";
+import type { ProcessingStatus } from "@/types/prisma-enums";
 import type { PaginatedResponse, PaginationParams } from "@/types/api";
 
 export interface CreateDocumentData {

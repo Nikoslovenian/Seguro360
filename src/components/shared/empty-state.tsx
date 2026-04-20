@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils/cn";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 interface EmptyStateProps {
@@ -37,8 +37,8 @@ export function EmptyState({
       {actionLabel && (actionHref || onAction) && (
         <>
           {actionHref ? (
-            <Button asChild>
-              <a href={actionHref}>{actionLabel}</a>
+            <Button render={<a href={actionHref} />}>
+              {actionLabel}
             </Button>
           ) : (
             <Button onClick={onAction}>{actionLabel}</Button>

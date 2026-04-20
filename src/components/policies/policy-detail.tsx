@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@/lib/utils/cn";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -9,7 +9,7 @@ import { CoverageTable } from "@/components/policies/coverage-table";
 import { ExclusionList } from "@/components/policies/exclusion-list";
 import { INSURANCE_CATEGORIES } from "@/lib/constants";
 import { formatCurrency } from "@/lib/utils/currency";
-import type { InsuranceCategory, PolicyStatus } from "@prisma/client";
+import type { InsuranceCategory, PolicyStatus } from "@/types/prisma-enums";
 
 interface PolicyWithRelations {
   id: string;

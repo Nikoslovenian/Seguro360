@@ -1,11 +1,11 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { cn } from "@/lib/utils/cn";
+import { cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { INSURANCE_CATEGORIES, PROTECTION_LEVELS } from "@/lib/constants";
 import type { ProtectionScore } from "@/types/insurance";
-import type { InsuranceCategory } from "@prisma/client";
+import type { InsuranceCategory } from "@/types/prisma-enums";
 import {
   Heart,
   Shield,

@@ -14,6 +14,18 @@ export const createPolicySchema = z.object({
   premiumCurrency: z.string().default("CLP"),
 });
 
+export const createPolicySchemaRefined = createPolicySchema.refine(
+  (data) =>
+    !data.startDate ||
+    !data.endDate ||
+    new Date(data.endDate) >= new Date(data.startDate),
+  {
+    message:
+      "La fecha de termino debe ser igual o posterior a la fecha de inicio",
+    path: ["endDate"],
+  },
+);
+
 export const updatePolicySchema = createPolicySchema.partial();
 
 export type CreatePolicyInput = z.infer<typeof createPolicySchema>;

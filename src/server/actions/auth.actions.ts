@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { registerSchema, type RegisterInput } from "@/lib/validations/auth";
 import { isValidRut, cleanRut } from "@/lib/utils/rut";
+import { hmacRut } from "@/lib/utils/encryption";
 
 interface ActionResult {
   success: boolean;
@@ -14,7 +15,7 @@ export async function registerUser(input: RegisterInput): Promise<ActionResult> 
   // Validate input
   const parsed = registerSchema.safeParse(input);
   if (!parsed.success) {
-    const firstError = parsed.error.errors[0];
+    const firstError = parsed.error.issues[0];
     return {
       success: false,
       error: firstError?.message ?? "Datos de registro invalidos.",
@@ -47,13 +48,18 @@ export async function registerUser(input: RegisterInput): Promise<ActionResult> 
         };
       }
 
-      // Check if RUT is already registered
-      const rutHashCandidate = await bcrypt.hash(cleaned, 10);
+      rutHash = hmacRut(cleaned);
 
-      // We can't check uniqueness by hash comparison (different salts),
-      // so we store the cleaned RUT value for uniqueness via the rutHash field.
-      // In production, use a deterministic hash (e.g., HMAC) for lookups.
-      rutHash = rutHashCandidate;
+      // Check if RUT is already registered
+      const existingRut = await prisma.user.findUnique({
+        where: { rutHash },
+      });
+      if (existingRut) {
+        return {
+          success: false,
+          error: "Este RUT ya esta registrado.",
+        };
+      }
     }
 
     // Hash password

@@ -2,13 +2,13 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { cn } from "@/lib/utils/cn";
+import { cn } from "@/lib/utils";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { INSURANCE_CATEGORIES } from "@/lib/constants";
 import { Calendar, ChevronRight } from "lucide-react";
-import type { InsuranceCategory } from "@prisma/client";
+import type { InsuranceCategory } from "@/types/prisma-enums";
 import type { ApiResponse, PaginatedResponse } from "@/types/api";
 
 interface ExpiringPolicy {

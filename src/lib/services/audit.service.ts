@@ -34,7 +34,7 @@ export const AuditService = {
         action: params.action,
         resource: params.resource,
         resourceId: params.resourceId,
-        details: params.details ?? undefined,
+        details: params.details ? JSON.stringify(params.details) : undefined,
         ipAddress: params.ipAddress ?? null,
         userAgent: params.userAgent ?? null,
       },

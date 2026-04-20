@@ -66,10 +66,25 @@ export async function DELETE(
     }
 
     // Delete from S3
+    let s3DeleteFailed = false;
     try {
       await deleteFile(document.storageBucket, document.storagePath);
     } catch (s3Error) {
+      s3DeleteFailed = true;
       console.error("[DELETE /api/documents/[id]] S3 delete failed:", s3Error);
+      await logAudit({
+        userId: session.user.id,
+        action: "s3.delete_failed",
+        resource: "PolicyDocument",
+        resourceId: id,
+        details: {
+          fileName: document.fileName,
+          storagePath: document.storagePath,
+          storageBucket: document.storageBucket,
+          error: s3Error instanceof Error ? s3Error.message : String(s3Error),
+        },
+        request,
+      });
       // Continue with DB deletion even if S3 fails
     }
 
@@ -85,7 +100,12 @@ export async function DELETE(
       request,
     });
 
-    return NextResponse.json<ApiResponse>({ success: true });
+    return NextResponse.json<ApiResponse>({
+      success: true,
+      ...(s3DeleteFailed && {
+        warning: "El registro fue eliminado pero el archivo en S3 no pudo ser borrado",
+      }),
+    });
   } catch (error) {
     console.error("[DELETE /api/documents/[id]]", error);
     return NextResponse.json<ApiResponse>(

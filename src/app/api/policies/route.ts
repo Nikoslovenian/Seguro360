@@ -3,8 +3,9 @@ import { auth } from "@/lib/auth";
 import { PolicyService } from "@/lib/services/policy.service";
 import { createPolicySchema } from "@/lib/validations/policy";
 import { logAudit } from "@/server/middleware/audit";
+import { safeParseJson } from "@/lib/utils/parse-json";
 import type { ApiResponse } from "@/types/api";
-import type { InsuranceCategory, PolicyStatus } from "@prisma/client";
+import type { InsuranceCategory, PolicyStatus } from "@/types/prisma-enums";
 
 export async function GET(request: NextRequest) {
   try {
@@ -17,15 +18,20 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const category = searchParams.get("category") as InsuranceCategory | null;
-    const status = searchParams.get("status") as PolicyStatus | null;
+    const VALID_CATEGORIES = ["SALUD", "VIDA", "HOGAR", "VEHICULO", "ACCIDENTES", "HOSPITALIZACION", "INVALIDEZ", "RESPONSABILIDAD_CIVIL", "VIAJE", "OTRO"];
+    const VALID_STATUSES = ["ACTIVE", "EXPIRED", "CANCELLED", "PENDING_VERIFICATION", "DRAFT"];
+
+    const rawCategory = searchParams.get("category");
+    const category = rawCategory && VALID_CATEGORIES.includes(rawCategory) ? rawCategory as InsuranceCategory : undefined;
+    const rawStatus = searchParams.get("status");
+    const status = rawStatus && VALID_STATUSES.includes(rawStatus) ? rawStatus as PolicyStatus : undefined;
     const search = searchParams.get("search") ?? undefined;
-    const page = parseInt(searchParams.get("page") ?? "1", 10);
-    const pageSize = parseInt(searchParams.get("pageSize") ?? "20", 10);
+    const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(searchParams.get("pageSize") ?? "20", 10) || 20));
 
     const result = await PolicyService.listByUser(session.user.id, {
-      category: category ?? undefined,
-      status: status ?? undefined,
+      category,
+      status,
       search,
       page,
       pageSize,
@@ -51,14 +57,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = await request.json();
+    const [body, parseError] = await safeParseJson(request);
+    if (parseError) return parseError;
+
     const parsed = createPolicySchema.safeParse(body);
 
     if (!parsed.success) {
       return NextResponse.json<ApiResponse>(
         {
           success: false,
-          error: parsed.error.errors.map((e) => e.message).join(", "),
+          error: parsed.error.issues.map((e) => e.message).join(", "),
         },
         { status: 400 },
       );

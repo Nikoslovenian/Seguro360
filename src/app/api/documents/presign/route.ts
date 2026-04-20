@@ -5,6 +5,7 @@ import { getPresignedUploadUrl } from "@/lib/s3";
 import { presignRequestSchema } from "@/lib/validations/document";
 import { DocumentService } from "@/lib/services/document.service";
 import { logAudit } from "@/server/middleware/audit";
+import { safeParseJson } from "@/lib/utils/parse-json";
 import type { ApiResponse } from "@/types/api";
 
 export async function POST(request: NextRequest) {
@@ -17,14 +18,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const body = await request.json();
+    const [body, parseError] = await safeParseJson(request);
+    if (parseError) return parseError;
+
     const parsed = presignRequestSchema.safeParse(body);
 
     if (!parsed.success) {
       return NextResponse.json<ApiResponse>(
         {
           success: false,
-          error: parsed.error.errors.map((e) => e.message).join(", "),
+          error: parsed.error.issues.map((e) => e.message).join(", "),
         },
         { status: 400 },
       );
@@ -33,9 +36,16 @@ export async function POST(request: NextRequest) {
     const { fileName, fileType, fileSize } = parsed.data;
 
     // Generate a unique storage path
-    const fileExtension = fileName.split(".").pop() ?? "bin";
+    const MIME_TO_EXT: Record<string, string> = {
+      "application/pdf": "pdf",
+      "image/jpeg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp",
+      "image/tiff": "tiff",
+    };
+    const fileExtension = MIME_TO_EXT[fileType] ?? "bin";
     const storageKey = session.user.id + "/" + uuidv4() + "." + fileExtension;
-    const bucket = process.env.S3_BUCKET ?? "documents";
+    const bucket = process.env.S3_BUCKET_DOCUMENTS ?? "documents";
 
     // Generate presigned URL for upload
     const presignedUrl = await getPresignedUploadUrl(

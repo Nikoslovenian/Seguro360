@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes, createHash } from "crypto";
+import { createCipheriv, createDecipheriv, randomBytes, createHash, createHmac } from "crypto";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 16;
@@ -44,4 +44,10 @@ export function decrypt(encryptedText: string): string {
 
 export function hashForLookup(text: string): string {
   return createHash("sha256").update(text.toLowerCase().trim()).digest("hex");
+}
+
+export function hmacRut(rut: string): string {
+  const key = process.env.RUT_HMAC_KEY || process.env.ENCRYPTION_KEY;
+  if (!key) throw new Error("RUT_HMAC_KEY or ENCRYPTION_KEY environment variable is not set");
+  return createHmac("sha256", key).update(rut.toLowerCase().trim()).digest("hex");
 }

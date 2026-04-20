@@ -18,7 +18,10 @@ import {
   File,
   X,
   Image,
+  Loader2,
+  RefreshCw,
 } from "lucide-react";
+import type { ApiResponse, PaginatedResponse } from "@/types/api";
 
 /* ------------------------------------------------------------------ */
 /*  TYPES                                                              */
@@ -60,6 +63,40 @@ interface NewPolicyForm {
   startDate: string;
   endDate: string;
   monthlyPremium: string;
+}
+
+/* ------------------------------------------------------------------ */
+/*  API RESPONSE SHAPES                                                */
+/* ------------------------------------------------------------------ */
+
+interface ApiPolicy {
+  id: string;
+  policyNumber?: string | null;
+  insuranceCompany?: string | null;
+  category: string;
+  status: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  totalInsuredAmount?: number | null;
+  premium?: number | null;
+  premiumFrequency?: string | null;
+  overallConfidence?: number | null;
+  subcategory?: string | null;
+  policyHolder?: string | null;
+  insuredName?: string | null;
+  sourceDocument?: { id: string; fileName: string } | null;
+  coverages?: Array<{ id: string; name: string; coveredAmount?: number | null }>;
+}
+
+interface ApiDocument {
+  id: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  processingStatus: string;
+  processingError?: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -117,6 +154,34 @@ const categoryColorMap: Record<string, { badge: string; bg: string }> = {
   },
 };
 
+/* Map API category enum -> display name for color lookup */
+const categoryEnumToDisplay: Record<string, string> = {
+  SALUD: "Salud",
+  VIDA: "Vida",
+  HOGAR: "Hogar",
+  VEHICULO: "Vehiculo",
+  ACCIDENTES: "Accidentes",
+  HOSPITALIZACION: "Hospitalizacion",
+  INVALIDEZ: "Otro",
+  RESPONSABILIDAD_CIVIL: "Responsabilidad Civil",
+  VIAJE: "Viaje",
+  OTRO: "Otro",
+};
+
+/* Map API category enum -> company bg color */
+const categoryBgMap: Record<string, string> = {
+  SALUD: "bg-cyan-600",
+  VIDA: "bg-purple-600",
+  HOGAR: "bg-amber-600",
+  VEHICULO: "bg-emerald-600",
+  ACCIDENTES: "bg-pink-600",
+  HOSPITALIZACION: "bg-blue-600",
+  INVALIDEZ: "bg-red-600",
+  RESPONSABILIDAD_CIVIL: "bg-slate-600",
+  VIAJE: "bg-orange-600",
+  OTRO: "bg-gray-600",
+};
+
 function getInitials(company: string): string {
   return company
     .split(" ")
@@ -128,8 +193,17 @@ function getInitials(company: string): string {
 
 function formatDate(dateStr: string): string {
   if (!dateStr) return "";
-  const [y, m, d] = dateStr.split("-");
-  return `${d}/${m}/${y}`;
+  // Handle both yyyy-mm-dd and ISO date strings
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) {
+    // Fallback for yyyy-mm-dd format
+    const [y, m, day] = dateStr.split("-");
+    return `${day}/${m}/${y}`;
+  }
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yy = d.getFullYear();
+  return `${dd}/${mm}/${yy}`;
 }
 
 function formatFileSize(bytes: number): string {
@@ -148,124 +222,169 @@ function getTodayFormatted(): string {
 
 function getFileExtIcon(type: string) {
   const t = type.toLowerCase();
-  if (t === "pdf") return File;
-  if (t === "jpg" || t === "jpeg" || t === "png") return Image;
+  if (t === "pdf" || t === "application/pdf") return File;
+  if (["jpg", "jpeg", "png", "image/jpeg", "image/png"].includes(t)) return Image;
   return File;
 }
 
+function mapProcessingStatus(
+  status: string,
+): { status: DocumentItem["status"]; label: string } {
+  switch (status) {
+    case "COMPLETED":
+      return { status: "procesado", label: "Procesado" };
+    case "PENDING":
+    case "QUEUED":
+      return { status: "pendiente", label: "Pendiente" };
+    case "EXTRACTING_TEXT":
+    case "RUNNING_OCR":
+    case "EXTRACTING_STRUCTURED":
+    case "GENERATING_EMBEDDINGS":
+      return { status: "procesando", label: "Procesando..." };
+    case "FAILED":
+    case "NEEDS_REVIEW":
+      return { status: "error", label: "Error" };
+    default:
+      return { status: "pendiente", label: status };
+  }
+}
+
+function mapPolicyStatus(
+  status: string,
+  endDateStr?: string | null,
+): { status: PolicyCard["status"]; label: string; color: string } {
+  const now = new Date();
+  const endDate = endDateStr ? new Date(endDateStr) : null;
+  const thirtyDays = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+  if (status === "EXPIRED" || status === "CANCELLED") {
+    return {
+      status: "vencida",
+      label: status === "EXPIRED" ? "Vencida" : "Cancelada",
+      color: "bg-red-500/20 text-red-400 border-red-500/30",
+    };
+  }
+
+  if (endDate && endDate <= thirtyDays && endDate >= now) {
+    return {
+      status: "por_vencer",
+      label: "Por vencer",
+      color: "bg-amber-500/20 text-amber-400 border-amber-500/30",
+    };
+  }
+
+  if (status === "PENDING_VERIFICATION" || status === "DRAFT") {
+    return {
+      status: "activa",
+      label: status === "DRAFT" ? "Borrador" : "Pendiente",
+      color: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+    };
+  }
+
+  return {
+    status: "activa",
+    label: "Activa",
+    color: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+  };
+}
+
+function apiPolicyToCard(p: ApiPolicy): PolicyCard {
+  const displayCat = categoryEnumToDisplay[p.category] || "Otro";
+  const catColors = categoryColorMap[displayCat] || categoryColorMap["Otro"];
+  const company = p.insuranceCompany || "Sin compania";
+  const statusInfo = mapPolicyStatus(p.status, p.endDate);
+
+  const coverageStr = p.totalInsuredAmount
+    ? `$${p.totalInsuredAmount.toLocaleString("es-CL")} CLP`
+    : "Sin especificar";
+
+  const premiumStr = p.premium
+    ? `$${p.premium.toLocaleString("es-CL")}`
+    : "";
+
+  // Build a descriptive name
+  const name = p.policyHolder || p.insuredName || `Poliza ${displayCat}`;
+
+  return {
+    id: p.id,
+    name: p.policyNumber ? `${displayCat} - ${p.policyNumber}` : name,
+    company,
+    category: p.category,
+    categoryColor: catColors.badge,
+    status: statusInfo.status,
+    statusLabel: statusInfo.label,
+    statusColor: statusInfo.color,
+    startDate: p.startDate ? formatDate(p.startDate) : "Sin fecha",
+    endDate: p.endDate ? formatDate(p.endDate) : "Sin fecha",
+    coverageAmount: coverageStr,
+    companyInitials: getInitials(company),
+    companyBg: categoryBgMap[p.category] || "bg-gray-600",
+    policyNumber: p.policyNumber || "Sin numero",
+    monthlyPremium: premiumStr,
+  };
+}
+
+function apiDocumentToItem(d: ApiDocument): DocumentItem {
+  const ext = d.fileName.split(".").pop()?.toUpperCase() || d.fileType.toUpperCase();
+  const statusInfo = mapProcessingStatus(d.processingStatus);
+
+  return {
+    id: d.id,
+    name: d.fileName,
+    type: ext,
+    size: formatFileSize(d.fileSize),
+    uploadDate: formatDate(d.createdAt),
+    status: statusInfo.status,
+    statusLabel: statusInfo.label,
+  };
+}
+
 /* ------------------------------------------------------------------ */
-/*  INITIAL MOCK DATA                                                  */
+/*  SKELETON COMPONENTS                                                */
 /* ------------------------------------------------------------------ */
 
-const initialPolicies: PolicyCard[] = [
-  {
-    id: "pol-1",
-    name: "Seguro Complementario Salud",
-    company: "MetLife",
-    category: "SALUD",
-    categoryColor: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
-    status: "activa",
-    statusLabel: "Activa",
-    statusColor: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-    startDate: "15/01/2026",
-    endDate: "15/01/2027",
-    coverageAmount: "$5.000.000 CLP",
-    companyInitials: "ML",
-    companyBg: "bg-blue-600",
-    policyNumber: "SAL-2026-001",
-    monthlyPremium: "$45.000",
-  },
-  {
-    id: "pol-2",
-    name: "Seguro de Vida",
-    company: "Consorcio Nacional",
-    category: "VIDA",
-    categoryColor: "bg-purple-500/20 text-purple-400 border-purple-500/30",
-    status: "activa",
-    statusLabel: "Activa",
-    statusColor: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-    startDate: "01/03/2026",
-    endDate: "01/03/2027",
-    coverageAmount: "$50.000.000 CLP",
-    companyInitials: "CN",
-    companyBg: "bg-purple-600",
-    policyNumber: "VID-2026-042",
-    monthlyPremium: "$32.000",
-  },
-  {
-    id: "pol-3",
-    name: "Seguro Vehiculo Todo Riesgo",
-    company: "BCI Seguros",
-    category: "VEHICULO",
-    categoryColor: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-    status: "por_vencer",
-    statusLabel: "Por vencer",
-    statusColor: "bg-amber-500/20 text-amber-400 border-amber-500/30",
-    startDate: "10/05/2025",
-    endDate: "10/04/2026",
-    coverageAmount: "$15.000.000 CLP",
-    companyInitials: "BCI",
-    companyBg: "bg-emerald-600",
-    policyNumber: "VEH-2025-118",
-    monthlyPremium: "$55.000",
-  },
-  {
-    id: "pol-4",
-    name: "SOAP Obligatorio",
-    company: "Liberty Seguros",
-    category: "VEHICULO",
-    categoryColor: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-    status: "activa",
-    statusLabel: "Activa",
-    statusColor: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-    startDate: "01/04/2026",
-    endDate: "31/03/2027",
-    coverageAmount: "Segun ley",
-    companyInitials: "LB",
-    companyBg: "bg-sky-600",
-    policyNumber: "SOAP-2026-003",
-    monthlyPremium: "$8.500",
-  },
-];
+function SkeletonPolicyCard() {
+  return (
+    <div className="rounded-2xl border border-[#2d3548] bg-[#1c2333] p-5 animate-pulse">
+      <div className="flex items-start gap-4">
+        <div className="h-12 w-12 rounded-xl bg-[#2d3548] shrink-0" />
+        <div className="flex-1 space-y-3">
+          <div className="flex gap-2">
+            <div className="h-5 w-16 rounded-full bg-[#2d3548]" />
+            <div className="h-5 w-14 rounded-full bg-[#2d3548]" />
+          </div>
+          <div className="h-4 w-48 rounded bg-[#2d3548]" />
+          <div className="h-3 w-24 rounded bg-[#2d3548]" />
+          <div className="h-3 w-32 rounded bg-[#2d3548]" />
+          <div className="flex gap-4">
+            <div className="h-3 w-36 rounded bg-[#2d3548]" />
+            <div className="h-3 w-28 rounded bg-[#2d3548]" />
+          </div>
+        </div>
+      </div>
+      <div className="mt-4 pt-4 border-t border-[#2d3548]/50 flex gap-2">
+        <div className="flex-1 h-9 rounded-lg bg-[#2d3548]" />
+        <div className="h-9 w-9 rounded-lg bg-[#2d3548]" />
+        <div className="h-9 w-9 rounded-lg bg-[#2d3548]" />
+      </div>
+    </div>
+  );
+}
 
-const initialDocuments: DocumentItem[] = [
-  {
-    id: "doc-1",
-    name: "Poliza_MetLife_Salud_2026.pdf",
-    type: "PDF",
-    size: "2.4 MB",
-    uploadDate: "15/01/2026",
-    status: "procesado",
-    statusLabel: "Procesado",
-  },
-  {
-    id: "doc-2",
-    name: "Poliza_Consorcio_Vida_2026.pdf",
-    type: "PDF",
-    size: "1.8 MB",
-    uploadDate: "01/03/2026",
-    status: "procesado",
-    statusLabel: "Procesado",
-  },
-  {
-    id: "doc-3",
-    name: "Condiciones_BCI_Auto.pdf",
-    type: "PDF",
-    size: "3.1 MB",
-    uploadDate: "10/03/2026",
-    status: "procesado",
-    statusLabel: "Procesado",
-  },
-  {
-    id: "doc-4",
-    name: "SOAP_Liberty_2026.pdf",
-    type: "PDF",
-    size: "0.5 MB",
-    uploadDate: "01/04/2026",
-    status: "procesado",
-    statusLabel: "Procesado",
-  },
-];
+function SkeletonDocumentRow() {
+  return (
+    <div className="flex items-center gap-4 rounded-xl border border-[#2d3548] bg-[#1c2333] p-4 animate-pulse">
+      <div className="h-10 w-10 rounded-lg bg-[#2d3548] shrink-0" />
+      <div className="flex-1 space-y-2">
+        <div className="h-4 w-48 rounded bg-[#2d3548]" />
+        <div className="h-3 w-36 rounded bg-[#2d3548]" />
+      </div>
+      <div className="h-5 w-20 rounded-full bg-[#2d3548]" />
+      <div className="h-8 w-8 rounded-lg bg-[#2d3548]" />
+      <div className="h-8 w-8 rounded-lg bg-[#2d3548]" />
+    </div>
+  );
+}
 
 /* ------------------------------------------------------------------ */
 /*  MAIN COMPONENT                                                     */
@@ -274,11 +393,16 @@ const initialDocuments: DocumentItem[] = [
 export default function MisSegurosPage() {
   const [activeTab, setActiveTab] = useState<"polizas" | "documentos">("polizas");
   const [isDragging, setIsDragging] = useState(false);
-  const [policies, setPolicies] = useState<PolicyCard[]>(initialPolicies);
-  const [documents, setDocuments] = useState<DocumentItem[]>(initialDocuments);
+  const [policies, setPolicies] = useState<PolicyCard[]>([]);
+  const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [loadingPolicies, setLoadingPolicies] = useState(true);
+  const [loadingDocuments, setLoadingDocuments] = useState(true);
+  const [errorPolicies, setErrorPolicies] = useState<string | null>(null);
+  const [errorDocuments, setErrorDocuments] = useState<string | null>(null);
 
   const [newPolicy, setNewPolicy] = useState<NewPolicyForm>({
     company: "",
@@ -289,6 +413,52 @@ export default function MisSegurosPage() {
     endDate: "",
     monthlyPremium: "",
   });
+
+  /* ----- Fetch policies from API ----- */
+  const fetchPolicies = useCallback(async () => {
+    setLoadingPolicies(true);
+    setErrorPolicies(null);
+    try {
+      const res = await fetch("/api/policies?pageSize=100");
+      const json: ApiResponse<PaginatedResponse<ApiPolicy>> = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || "Error al cargar polizas");
+      }
+      const items = json.data?.items ?? [];
+      setPolicies(items.map(apiPolicyToCard));
+    } catch (err) {
+      console.error("[Documents] fetchPolicies error:", err);
+      setErrorPolicies(err instanceof Error ? err.message : "Error al cargar polizas");
+    } finally {
+      setLoadingPolicies(false);
+    }
+  }, []);
+
+  /* ----- Fetch documents from API ----- */
+  const fetchDocuments = useCallback(async () => {
+    setLoadingDocuments(true);
+    setErrorDocuments(null);
+    try {
+      const res = await fetch("/api/documents?page=1&pageSize=50");
+      const json: ApiResponse<PaginatedResponse<ApiDocument>> = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || "Error al cargar documentos");
+      }
+      const items = json.data?.items ?? [];
+      setDocuments(items.map(apiDocumentToItem));
+    } catch (err) {
+      console.error("[Documents] fetchDocuments error:", err);
+      setErrorDocuments(err instanceof Error ? err.message : "Error al cargar documentos");
+    } finally {
+      setLoadingDocuments(false);
+    }
+  }, []);
+
+  /* ----- Initial fetch ----- */
+  useEffect(() => {
+    fetchPolicies();
+    fetchDocuments();
+  }, [fetchPolicies, fetchDocuments]);
 
   /* ----- Document processing simulation ----- */
   const processDocument = useCallback((docId: string) => {
@@ -389,9 +559,17 @@ export default function MisSegurosPage() {
   };
 
   /* ----- Delete document ----- */
-  const handleDeleteDocument = (docId: string) => {
+  const handleDeleteDocument = async (docId: string) => {
+    // Optimistically remove from UI
     setDocuments((prev) => prev.filter((d) => d.id !== docId));
     setDeleteConfirm(null);
+
+    // Also call API to delete (fire-and-forget for local temp docs)
+    try {
+      await fetch(`/api/documents/${docId}`, { method: "DELETE" });
+    } catch {
+      // If it fails (e.g. temp doc not in DB), that's fine
+    }
   };
 
   return (
@@ -491,7 +669,7 @@ export default function MisSegurosPage() {
           <FileText className="h-4 w-4" />
           Mis Polizas
           <span className="ml-1 rounded-full bg-white/10 px-2 py-0.5 text-xs">
-            {policies.length}
+            {loadingPolicies ? "..." : policies.length}
           </span>
         </button>
         <button
@@ -505,7 +683,7 @@ export default function MisSegurosPage() {
           <Upload className="h-4 w-4" />
           Documentos
           <span className="ml-1 rounded-full bg-white/10 px-2 py-0.5 text-xs">
-            {documents.length}
+            {loadingDocuments ? "..." : documents.length}
           </span>
         </button>
       </div>
@@ -515,7 +693,35 @@ export default function MisSegurosPage() {
       {/* ============================================================ */}
       {activeTab === "polizas" && (
         <div className="space-y-4">
-          {policies.length === 0 && (
+          {/* Loading state */}
+          {loadingPolicies && (
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <SkeletonPolicyCard key={i} />
+              ))}
+            </div>
+          )}
+
+          {/* Error state */}
+          {!loadingPolicies && errorPolicies && (
+            <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-8 text-center">
+              <AlertTriangle className="h-10 w-10 mx-auto text-red-400 mb-3" />
+              <h3 className="text-lg font-semibold text-[#e2e8f0] mb-2">
+                Error al cargar polizas
+              </h3>
+              <p className="text-sm text-[#94a3b8] mb-4">{errorPolicies}</p>
+              <button
+                onClick={fetchPolicies}
+                className="inline-flex items-center gap-2 rounded-xl border border-[#2d3548] bg-[#1c2333] px-4 py-2.5 text-sm font-medium text-[#e2e8f0] transition-all hover:border-[#3d4a63]"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Reintentar
+              </button>
+            </div>
+          )}
+
+          {/* Empty state */}
+          {!loadingPolicies && !errorPolicies && policies.length === 0 && (
             <div className="rounded-2xl border border-[#2d3548] bg-[#1c2333] p-12 text-center">
               <Shield className="h-12 w-12 mx-auto text-[#94a3b8]/30 mb-3" />
               <p className="text-[#94a3b8]">No tienes polizas agregadas aun.</p>
@@ -527,88 +733,92 @@ export default function MisSegurosPage() {
               </button>
             </div>
           )}
-          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-            {policies.map((policy) => (
-              <div
-                key={policy.id}
-                className="group rounded-2xl border border-[#2d3548] bg-[#1c2333] p-5 transition-all hover:border-[#3d4a63] hover:shadow-lg hover:shadow-black/20"
-              >
-                <div className="flex items-start gap-4">
-                  <div
-                    className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${policy.companyBg} text-white text-xs font-bold`}
-                  >
-                    {policy.companyInitials}
-                  </div>
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-2 flex-wrap">
-                      <span
-                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${policy.categoryColor}`}
-                      >
-                        {policy.category}
-                      </span>
-                      <span
-                        className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${policy.statusColor}`}
-                      >
-                        {policy.status === "activa" ? (
-                          <CheckCircle2 className="h-3 w-3" />
-                        ) : policy.status === "por_vencer" ? (
-                          <AlertTriangle className="h-3 w-3" />
-                        ) : (
-                          <Clock className="h-3 w-3" />
-                        )}
-                        {policy.statusLabel}
-                      </span>
+          {/* Policies grid */}
+          {!loadingPolicies && !errorPolicies && policies.length > 0 && (
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+              {policies.map((policy) => (
+                <div
+                  key={policy.id}
+                  className="group rounded-2xl border border-[#2d3548] bg-[#1c2333] p-5 transition-all hover:border-[#3d4a63] hover:shadow-lg hover:shadow-black/20"
+                >
+                  <div className="flex items-start gap-4">
+                    <div
+                      className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${policy.companyBg} text-white text-xs font-bold`}
+                    >
+                      {policy.companyInitials}
                     </div>
 
-                    <h3 className="text-base font-semibold text-[#e2e8f0] mb-0.5">
-                      {policy.name}
-                    </h3>
-
-                    <p className="text-xs text-[#94a3b8] flex items-center gap-1 mb-1">
-                      <Building2 className="h-3 w-3" />
-                      {policy.company}
-                    </p>
-
-                    <p className="text-xs text-[#64748b] mb-3">
-                      N° Poliza: {policy.policyNumber}
-                    </p>
-
-                    <div className="flex flex-wrap gap-x-4 gap-y-2">
-                      <div className="flex items-center gap-1.5 text-xs text-[#94a3b8]">
-                        <Calendar className="h-3 w-3" />
-                        <span>
-                          {policy.startDate} - {policy.endDate}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                        <span
+                          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${policy.categoryColor}`}
+                        >
+                          {policy.category}
+                        </span>
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${policy.statusColor}`}
+                        >
+                          {policy.status === "activa" ? (
+                            <CheckCircle2 className="h-3 w-3" />
+                          ) : policy.status === "por_vencer" ? (
+                            <AlertTriangle className="h-3 w-3" />
+                          ) : (
+                            <Clock className="h-3 w-3" />
+                          )}
+                          {policy.statusLabel}
                         </span>
                       </div>
-                      <div className="flex items-center gap-1.5 text-xs text-[#e2e8f0] font-medium">
-                        <Shield className="h-3 w-3 text-blue-400" />
-                        <span>{policy.coverageAmount}</span>
+
+                      <h3 className="text-base font-semibold text-[#e2e8f0] mb-0.5">
+                        {policy.name}
+                      </h3>
+
+                      <p className="text-xs text-[#94a3b8] flex items-center gap-1 mb-1">
+                        <Building2 className="h-3 w-3" />
+                        {policy.company}
+                      </p>
+
+                      <p className="text-xs text-[#64748b] mb-3">
+                        N° Poliza: {policy.policyNumber}
+                      </p>
+
+                      <div className="flex flex-wrap gap-x-4 gap-y-2">
+                        <div className="flex items-center gap-1.5 text-xs text-[#94a3b8]">
+                          <Calendar className="h-3 w-3" />
+                          <span>
+                            {policy.startDate} - {policy.endDate}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs text-[#e2e8f0] font-medium">
+                          <Shield className="h-3 w-3 text-blue-400" />
+                          <span>{policy.coverageAmount}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
 
-                <div className="mt-4 pt-4 border-t border-[#2d3548]/50 flex gap-2">
-                  <button className="flex-1 flex items-center justify-center gap-1.5 rounded-lg border border-[#2d3548] bg-[#0f1117] px-3 py-2 text-xs font-medium text-[#e2e8f0] transition-all hover:border-blue-500/50 hover:text-blue-400">
-                    <Eye className="h-3.5 w-3.5" />
-                    Ver detalle
-                  </button>
-                  <button className="flex items-center justify-center gap-1.5 rounded-lg border border-[#2d3548] bg-[#0f1117] px-3 py-2 text-xs font-medium text-[#94a3b8] transition-all hover:border-[#3d4a63] hover:text-[#e2e8f0]">
-                    <Download className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    onClick={() =>
-                      setPolicies((prev) => prev.filter((p) => p.id !== policy.id))
-                    }
-                    className="flex items-center justify-center gap-1.5 rounded-lg border border-[#2d3548] bg-[#0f1117] px-3 py-2 text-xs font-medium text-[#94a3b8] transition-all hover:border-red-500/50 hover:text-red-400 hover:bg-red-500/5"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  <div className="mt-4 pt-4 border-t border-[#2d3548]/50 flex gap-2">
+                    <button className="flex-1 flex items-center justify-center gap-1.5 rounded-lg border border-[#2d3548] bg-[#0f1117] px-3 py-2 text-xs font-medium text-[#e2e8f0] transition-all hover:border-blue-500/50 hover:text-blue-400">
+                      <Eye className="h-3.5 w-3.5" />
+                      Ver detalle
+                    </button>
+                    <button className="flex items-center justify-center gap-1.5 rounded-lg border border-[#2d3548] bg-[#0f1117] px-3 py-2 text-xs font-medium text-[#94a3b8] transition-all hover:border-[#3d4a63] hover:text-[#e2e8f0]">
+                      <Download className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() =>
+                        setPolicies((prev) => prev.filter((p) => p.id !== policy.id))
+                      }
+                      className="flex items-center justify-center gap-1.5 rounded-lg border border-[#2d3548] bg-[#0f1117] px-3 py-2 text-xs font-medium text-[#94a3b8] transition-all hover:border-red-500/50 hover:text-red-400 hover:bg-red-500/5"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -619,9 +829,38 @@ export default function MisSegurosPage() {
         <div className="space-y-6">
           <div>
             <h3 className="text-sm font-semibold text-[#e2e8f0] uppercase tracking-wider mb-4">
-              Documentos subidos ({documents.length})
+              Documentos subidos ({loadingDocuments ? "..." : documents.length})
             </h3>
-            {documents.length === 0 && (
+
+            {/* Loading state */}
+            {loadingDocuments && (
+              <div className="space-y-3">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <SkeletonDocumentRow key={i} />
+                ))}
+              </div>
+            )}
+
+            {/* Error state */}
+            {!loadingDocuments && errorDocuments && (
+              <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-8 text-center">
+                <AlertTriangle className="h-10 w-10 mx-auto text-red-400 mb-3" />
+                <h3 className="text-lg font-semibold text-[#e2e8f0] mb-2">
+                  Error al cargar documentos
+                </h3>
+                <p className="text-sm text-[#94a3b8] mb-4">{errorDocuments}</p>
+                <button
+                  onClick={fetchDocuments}
+                  className="inline-flex items-center gap-2 rounded-xl border border-[#2d3548] bg-[#1c2333] px-4 py-2.5 text-sm font-medium text-[#e2e8f0] transition-all hover:border-[#3d4a63]"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Reintentar
+                </button>
+              </div>
+            )}
+
+            {/* Empty state */}
+            {!loadingDocuments && !errorDocuments && documents.length === 0 && (
               <div className="rounded-xl border border-[#2d3548] bg-[#1c2333] p-10 text-center">
                 <FileText className="h-10 w-10 mx-auto text-[#94a3b8]/30 mb-3" />
                 <p className="text-sm text-[#94a3b8]">
@@ -629,96 +868,100 @@ export default function MisSegurosPage() {
                 </p>
               </div>
             )}
-            <div className="space-y-3">
-              {documents.map((doc) => {
-                const IconComp = getFileExtIcon(doc.type);
-                const iconBg =
-                  doc.type === "PDF"
-                    ? "bg-red-500/10"
-                    : doc.type === "JPG" || doc.type === "JPEG" || doc.type === "PNG"
-                      ? "bg-blue-500/10"
-                      : "bg-gray-500/10";
-                const iconColor =
-                  doc.type === "PDF"
-                    ? "text-red-400"
-                    : doc.type === "JPG" || doc.type === "JPEG" || doc.type === "PNG"
-                      ? "text-blue-400"
-                      : "text-gray-400";
 
-                return (
-                  <div
-                    key={doc.id}
-                    className="flex items-center gap-4 rounded-xl border border-[#2d3548] bg-[#1c2333] p-4 transition-all hover:border-[#3d4a63]"
-                  >
+            {/* Documents list */}
+            {!loadingDocuments && !errorDocuments && documents.length > 0 && (
+              <div className="space-y-3">
+                {documents.map((doc) => {
+                  const IconComp = getFileExtIcon(doc.type);
+                  const iconBg =
+                    doc.type === "PDF"
+                      ? "bg-red-500/10"
+                      : doc.type === "JPG" || doc.type === "JPEG" || doc.type === "PNG"
+                        ? "bg-blue-500/10"
+                        : "bg-gray-500/10";
+                  const iconColor =
+                    doc.type === "PDF"
+                      ? "text-red-400"
+                      : doc.type === "JPG" || doc.type === "JPEG" || doc.type === "PNG"
+                        ? "text-blue-400"
+                        : "text-gray-400";
+
+                  return (
                     <div
-                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${iconBg}`}
+                      key={doc.id}
+                      className="flex items-center gap-4 rounded-xl border border-[#2d3548] bg-[#1c2333] p-4 transition-all hover:border-[#3d4a63]"
                     >
-                      <IconComp className={`h-5 w-5 ${iconColor}`} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-[#e2e8f0] truncate">
-                        {doc.name}
-                      </p>
-                      <p className="text-xs text-[#94a3b8]">
-                        {doc.type} - {doc.size} - Subido el {doc.uploadDate}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium ${
-                          doc.status === "procesado"
-                            ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
-                            : doc.status === "procesando"
-                              ? "bg-amber-500/20 text-amber-400 border-amber-500/30"
-                              : doc.status === "pendiente"
-                                ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
-                                : "bg-red-500/20 text-red-400 border-red-500/30"
-                        }`}
+                      <div
+                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${iconBg}`}
                       >
-                        {doc.status === "procesado" ? (
-                          <CheckCircle2 className="h-3 w-3" />
-                        ) : doc.status === "procesando" ? (
-                          <Clock className="h-3 w-3 animate-spin" />
-                        ) : doc.status === "pendiente" ? (
-                          <Clock className="h-3 w-3" />
-                        ) : (
-                          <AlertTriangle className="h-3 w-3" />
-                        )}
-                        {doc.statusLabel}
-                      </span>
-                      <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[#94a3b8] hover:bg-[#0f1117] hover:text-[#e2e8f0] transition-colors">
-                        <Download className="h-4 w-4" />
-                      </button>
-
-                      {/* Delete with confirmation */}
-                      {deleteConfirm === doc.id ? (
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => handleDeleteDocument(doc.id)}
-                            className="rounded-lg bg-red-500/20 px-2 py-1 text-xs font-medium text-red-400 hover:bg-red-500/30 transition-colors"
-                          >
-                            Si
-                          </button>
-                          <button
-                            onClick={() => setDeleteConfirm(null)}
-                            className="rounded-lg bg-[#2d3548] px-2 py-1 text-xs font-medium text-[#94a3b8] hover:bg-[#3d4a63] transition-colors"
-                          >
-                            No
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setDeleteConfirm(doc.id)}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg text-[#94a3b8] hover:bg-red-500/10 hover:text-red-400 transition-colors"
+                        <IconComp className={`h-5 w-5 ${iconColor}`} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-[#e2e8f0] truncate">
+                          {doc.name}
+                        </p>
+                        <p className="text-xs text-[#94a3b8]">
+                          {doc.type} - {doc.size} - Subido el {doc.uploadDate}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium ${
+                            doc.status === "procesado"
+                              ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+                              : doc.status === "procesando"
+                                ? "bg-amber-500/20 text-amber-400 border-amber-500/30"
+                                : doc.status === "pendiente"
+                                  ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
+                                  : "bg-red-500/20 text-red-400 border-red-500/30"
+                          }`}
                         >
-                          <Trash2 className="h-4 w-4" />
+                          {doc.status === "procesado" ? (
+                            <CheckCircle2 className="h-3 w-3" />
+                          ) : doc.status === "procesando" ? (
+                            <Clock className="h-3 w-3 animate-spin" />
+                          ) : doc.status === "pendiente" ? (
+                            <Clock className="h-3 w-3" />
+                          ) : (
+                            <AlertTriangle className="h-3 w-3" />
+                          )}
+                          {doc.statusLabel}
+                        </span>
+                        <button className="flex h-8 w-8 items-center justify-center rounded-lg text-[#94a3b8] hover:bg-[#0f1117] hover:text-[#e2e8f0] transition-colors">
+                          <Download className="h-4 w-4" />
                         </button>
-                      )}
+
+                        {/* Delete with confirmation */}
+                        {deleteConfirm === doc.id ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleDeleteDocument(doc.id)}
+                              className="rounded-lg bg-red-500/20 px-2 py-1 text-xs font-medium text-red-400 hover:bg-red-500/30 transition-colors"
+                            >
+                              Si
+                            </button>
+                            <button
+                              onClick={() => setDeleteConfirm(null)}
+                              className="rounded-lg bg-[#2d3548] px-2 py-1 text-xs font-medium text-[#94a3b8] hover:bg-[#3d4a63] transition-colors"
+                            >
+                              No
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setDeleteConfirm(doc.id)}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg text-[#94a3b8] hover:bg-red-500/10 hover:text-red-400 transition-colors"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}

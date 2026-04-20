@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Menu, Bell } from "lucide-react";
 import {
   Sheet,
@@ -12,6 +13,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { UserButton } from "@/components/auth/user-button";
 
 export function Topbar() {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
 
   return (
@@ -46,7 +48,10 @@ export function Topbar() {
       {/* Right side */}
       <div className="ml-auto flex items-center gap-2">
         {/* Notification bell */}
-        <button className="relative flex h-9 w-9 items-center justify-center rounded-lg text-[#64748b] hover:text-[#e2e8f0] hover:bg-white/[0.06] transition-colors">
+        <button
+          onClick={() => router.push("/alerts")}
+          className="relative flex h-9 w-9 items-center justify-center rounded-lg text-[#64748b] hover:text-[#e2e8f0] hover:bg-white/[0.06] transition-colors"
+        >
           <Bell className="h-[18px] w-[18px]" />
           <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-cyan-400 shadow-[0_0_6px_rgba(6,182,212,0.6)]" />
           <span className="sr-only">Notificaciones</span>

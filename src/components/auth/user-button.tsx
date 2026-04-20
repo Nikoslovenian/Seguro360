@@ -76,23 +76,19 @@ export function UserButton() {
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator className="bg-[#2d3548]" />
-        <DropdownMenuItem asChild>
-          <Link
-            href="/profile"
-            className="flex items-center cursor-pointer px-3 py-2 text-[#94a3b8] hover:text-[#e2e8f0] focus:bg-white/[0.06] focus:text-[#e2e8f0]"
-          >
-            <User className="mr-2 h-4 w-4" />
-            Perfil
-          </Link>
+        <DropdownMenuItem
+          render={<Link href="/profile" />}
+          className="flex items-center cursor-pointer px-3 py-2 text-[#94a3b8] hover:text-[#e2e8f0] focus:bg-white/[0.06] focus:text-[#e2e8f0]"
+        >
+          <User className="mr-2 h-4 w-4" />
+          Perfil
         </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link
-            href="/profile"
-            className="flex items-center cursor-pointer px-3 py-2 text-[#94a3b8] hover:text-[#e2e8f0] focus:bg-white/[0.06] focus:text-[#e2e8f0]"
-          >
-            <Settings className="mr-2 h-4 w-4" />
-            Configuracion
-          </Link>
+        <DropdownMenuItem
+          render={<Link href="/profile" />}
+          className="flex items-center cursor-pointer px-3 py-2 text-[#94a3b8] hover:text-[#e2e8f0] focus:bg-white/[0.06] focus:text-[#e2e8f0]"
+        >
+          <Settings className="mr-2 h-4 w-4" />
+          Configuracion
         </DropdownMenuItem>
         <DropdownMenuSeparator className="bg-[#2d3548]" />
         <DropdownMenuItem

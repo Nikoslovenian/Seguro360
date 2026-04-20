@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   User,
   Mail,
@@ -23,6 +23,7 @@ import {
   MapPin,
   Globe,
   Calendar,
+  Loader2,
 } from "lucide-react";
 import { REGIONES, getComunas } from "@/lib/chile-geo";
 
@@ -85,17 +86,17 @@ const countryOptions = ["Chile", "Argentina", "Peru", "Colombia", "Otro"];
 
 const regionOptions = REGIONES;
 
-const initialProfile: ProfileData = {
-  name: "Carlos Mendez Arriagada",
-  email: "carlos.mendez@email.cl",
-  phone: "+56 9 8765 4321",
-  rut: "12.345.678-9",
+const emptyProfile: ProfileData = {
+  name: "",
+  email: "",
+  phone: "",
+  rut: "",
   age: 35,
   gender: "Masculino",
-  civilStatus: "Casado/a",
+  civilStatus: "Soltero/a",
   country: "Chile",
-  region: "Metropolitana",
-  comuna: "Providencia",
+  region: "",
+  comuna: "",
 };
 
 const initialConsents: ConsentItem[] = [
@@ -206,14 +207,63 @@ function SelectField({
 }
 
 /* ------------------------------------------------------------------ */
+/*  SKELETON COMPONENT                                                 */
+/* ------------------------------------------------------------------ */
+
+function ProfileSkeleton() {
+  return (
+    <div className="mx-auto max-w-3xl space-y-6 -m-6 p-6 min-h-full bg-[#0f1117] animate-pulse">
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <div className="h-10 w-10 rounded-xl bg-[#1c2333]" />
+        <div className="space-y-2">
+          <div className="h-6 w-40 rounded bg-[#1c2333]" />
+          <div className="h-4 w-64 rounded bg-[#1c2333]" />
+        </div>
+      </div>
+
+      {/* Avatar card */}
+      <div className="rounded-2xl border border-[#2d3548] bg-[#1c2333] p-6">
+        <div className="flex items-center gap-5">
+          <div className="h-20 w-20 rounded-2xl bg-[#2d3548]" />
+          <div className="flex-1 space-y-2">
+            <div className="h-5 w-48 rounded bg-[#2d3548]" />
+            <div className="h-4 w-36 rounded bg-[#2d3548]" />
+            <div className="flex gap-2 mt-2">
+              <div className="h-6 w-20 rounded-full bg-[#2d3548]" />
+              <div className="h-6 w-20 rounded-full bg-[#2d3548]" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Form card */}
+      <div className="rounded-2xl border border-[#2d3548] bg-[#1c2333] p-6 space-y-4">
+        <div className="h-6 w-40 rounded bg-[#2d3548]" />
+        <div className="h-4 w-72 rounded bg-[#2d3548]" />
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="space-y-1.5">
+            <div className="h-4 w-32 rounded bg-[#2d3548]" />
+            <div className="h-12 w-full rounded-xl bg-[#0f1117]" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  MAIN COMPONENT                                                     */
 /* ------------------------------------------------------------------ */
 
 export default function ProfilePage() {
-  const [profile, setProfile] = useState<ProfileData>(initialProfile);
+  const [profile, setProfile] = useState<ProfileData>(emptyProfile);
   const [consents, setConsents] = useState<ConsentItem[]>(initialConsents);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Family state
   const [hasPartner, setHasPartner] = useState(false);
@@ -225,20 +275,72 @@ export default function ProfilePage() {
   // Delete account confirmation
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
+  // Fetch profile on mount
+  const fetchProfile = useCallback(async () => {
+    setIsLoading(true);
+    setLoadError(null);
+    try {
+      const res = await fetch("/api/profile");
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setLoadError(json.error ?? "Error al cargar perfil");
+        return;
+      }
+      const d = json.data;
+      setProfile({
+        name: d.name ?? "",
+        email: d.email ?? "",
+        phone: d.phone ?? "",
+        rut: d.rut ?? "",
+        age: 35,
+        gender: "Masculino",
+        civilStatus: "Soltero/a",
+        country: "Chile",
+        region: "",
+        comuna: "",
+      });
+    } catch {
+      setLoadError("Error de conexion al cargar perfil");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchProfile();
+  }, [fetchProfile]);
+
   const handleToggle = (id: string) => {
     setConsents((prev) =>
       prev.map((c) => (c.id === id ? { ...c, enabled: !c.enabled } : c))
     );
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setIsSaving(true);
     setSaveSuccess(false);
-    setTimeout(() => {
-      setIsSaving(false);
+    setSaveError(null);
+    try {
+      const res = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: profile.name,
+          phone: profile.phone,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setSaveError(json.error ?? "Error al guardar");
+        return;
+      }
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
-    }, 1000);
+    } catch {
+      setSaveError("Error de conexion al guardar");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const addChild = () => {
@@ -285,6 +387,27 @@ export default function ProfilePage() {
     setProfile({ ...profile, region: val, comuna: "" });
   };
 
+  if (isLoading) {
+    return <ProfileSkeleton />;
+  }
+
+  if (loadError) {
+    return (
+      <div className="mx-auto max-w-3xl -m-6 p-6 min-h-full bg-[#0f1117] flex flex-col items-center justify-center gap-4">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-red-500/10 border border-red-500/20">
+          <AlertTriangle className="h-8 w-8 text-red-400" />
+        </div>
+        <p className="text-[#e2e8f0] font-medium">{loadError}</p>
+        <button
+          onClick={fetchProfile}
+          className="rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 px-6 py-2.5 text-sm font-semibold text-white hover:from-blue-500 hover:to-cyan-400 transition-all"
+        >
+          Reintentar
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-3xl space-y-6 -m-6 p-6 min-h-full bg-[#0f1117]">
       {/* Header */}
@@ -309,11 +432,13 @@ export default function ProfilePage() {
           <div className="relative">
             <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-cyan-500 text-2xl font-bold text-white shadow-lg shadow-blue-500/20">
               {profile.name
-                .split(" ")
-                .map((w) => w[0])
-                .join("")
-                .slice(0, 2)
-                .toUpperCase()}
+                ? profile.name
+                    .split(" ")
+                    .map((w) => w[0])
+                    .join("")
+                    .slice(0, 2)
+                    .toUpperCase()
+                : "??"}
             </div>
             <button className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-2 border-[#1c2333] bg-[#0f1117] text-[#94a3b8] hover:text-[#e2e8f0] transition-colors">
               <Camera className="h-3.5 w-3.5" />
@@ -323,7 +448,7 @@ export default function ProfilePage() {
           {/* Info */}
           <div className="flex-1">
             <h2 className="text-lg font-semibold text-[#e2e8f0]">
-              {profile.name}
+              {profile.name || "Sin nombre"}
             </h2>
             <p className="text-sm text-[#94a3b8]">{profile.email}</p>
             <div className="flex items-center gap-2 mt-2">
@@ -404,19 +529,24 @@ export default function ProfilePage() {
             />
           </div>
 
-          {/* RUT */}
+          {/* RUT (readonly) */}
           <div className="space-y-1.5">
             <label className="flex items-center gap-2 text-sm font-medium text-[#e2e8f0]">
               <CreditCard className="h-4 w-4 text-[#94a3b8]" />
               RUT
             </label>
-            <input
-              type="text"
-              value={profile.rut}
-              onChange={(e) => setProfile({ ...profile, rut: e.target.value })}
-              placeholder="12.345.678-9"
-              className="w-full rounded-xl border border-[#2d3548] bg-[#0f1117] px-4 py-3 text-sm text-[#e2e8f0] focus:border-blue-500/50 focus:outline-none focus:ring-1 focus:ring-blue-500/50 transition-colors"
-            />
+            <div className="relative">
+              <input
+                type="text"
+                value={profile.rut}
+                readOnly
+                placeholder="12.345.678-9"
+                className="w-full rounded-xl border border-[#2d3548] bg-[#0f1117]/50 px-4 py-3 text-sm text-[#94a3b8] cursor-not-allowed"
+              />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-[#94a3b8]/50">
+                No editable
+              </span>
+            </div>
           </div>
 
           {/* Edad + Genero row */}
@@ -515,12 +645,21 @@ export default function ProfilePage() {
               disabled={isSaving}
               className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 px-6 py-3 text-sm font-semibold text-white transition-all hover:from-blue-500 hover:to-cyan-400 hover:shadow-lg hover:shadow-blue-500/25 disabled:opacity-50"
             >
-              <Save className="h-4 w-4" />
+              {isSaving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
               {isSaving ? "Guardando..." : "Guardar cambios"}
             </button>
             {saveSuccess && (
               <span className="text-sm text-emerald-400 font-medium animate-pulse">
                 Cambios guardados correctamente
+              </span>
+            )}
+            {saveError && (
+              <span className="text-sm text-red-400 font-medium">
+                {saveError}
               </span>
             )}
           </div>
